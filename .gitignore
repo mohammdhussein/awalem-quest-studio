@@ -10,3 +10,5 @@ dist/
 *-debug.log
 firebase-debug.*.log
 .firebase/
+playwright-report/
+test-results/

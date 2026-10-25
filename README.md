@@ -1,5 +1,13 @@
 # Awalem Quest Studio — 2.5D Web Editor
 
+## Phase 2 scene editing
+
+Use **Set up / open Mission 1** to organize the existing Sea Wonders Main Scene locally. Select objects in the canvas or Scene Hierarchy, then use **W / E / R** for move, rotate, and scale. The Inspector supports independent scales, dimensions, opacity, visibility/locking, and image origins. Camera zoom/pan, grid/angle snapping, aspect locking, and depth controls are available in the scene toolbar.
+
+**Ctrl+Z**, **Ctrl+Y / Ctrl+Shift+Z**, **Ctrl+D**, **Delete**, and **F2** operate in scene context; text fields and the project tree keep their own editing behavior. Each completed drag or valid Inspector focus session is one undo step. Histories are independent per scene during the current browser session and reset on refresh. Authored changes still use the existing local drafts and explicit Firebase save/load.
+
+Run `npm run test:browser` for real headless Chrome tests at device pixel ratios 1 and 2, in addition to `npm test`, `npm run test:emulator`, and `npm run build`. See [PHASE_2.md](PHASE_2.md) for architecture, changed files, verification, limitations, and the manual checklist. Existing production administrator access and Hosting checks remain in force.
+
 ## Phase 1 project management
 
 The existing editor now has a persistent project explorer for worlds, volumes, missions, nested folders, scenes, and image asset metadata. Use **+ New**, item action menus, or F2 / Delete / Ctrl+D in the tree. Move content by dragging it onto a container or using **Move**. Moves are restricted to the original volume.
