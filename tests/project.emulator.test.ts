@@ -30,8 +30,10 @@ import {
   renameItem,
   trashItem,
   restoreItem,
+  addAsset,
 } from "../src/features/project/commands";
 import { isTrashed, itemKey, volumeKey } from "../src/features/project/model";
+import { newLayer } from "../src/features/backgrounds/model";
 
 let environment: RulesTestEnvironment;
 const vk = volumeKey("sea_wonders", "volume_01"),
@@ -245,6 +247,155 @@ describe("Firestore project persistence against unchanged rules", () => {
     expect((await getDocFromServer(doc(db, main))).data()?.entities[0].x).toBe(
       123,
     );
+  });
+});
+describe("Phase 3 shared backgrounds", () => {
+  it("removes a previously saved background when undo restores the original implicit world artwork", async () => {
+    const db = adminDB(),
+      repo = new FirestoreProjectRepository(db),
+      p = seedProject().project;
+    const source = addAsset(p, vk, {
+      name: "Reef",
+      url: "https://example.test/reef.png",
+      storage_path: null,
+      width: 500,
+      height: 500,
+      size: 100,
+      mime: "image/png",
+    });
+    const scene = p.records[main];
+    if (scene.kind !== "scene") throw new Error("fixture");
+    scene.scene.background = {
+      version: 1,
+      showWorldArtwork: false,
+      layers: [newLayer(source.key, "Reef", "background")],
+    };
+    let result = await repo.save(p);
+    expect(result.failures).toEqual([]);
+    acknowledgeSaves(p, result.saved);
+    delete scene.scene.background;
+    markChanged(p, scene);
+    result = await repo.save(p);
+    expect(result.failures).toEqual([]);
+    acknowledgeSaves(p, result.saved);
+    expect(
+      (await getDocFromServer(doc(db, main))).data()?.background,
+    ).toBeUndefined();
+    const loaded = (await repo.load()).records[main];
+    if (loaded.kind !== "scene") throw new Error("fixture");
+    expect(loaded.scene.background).toBeUndefined();
+    scene.scene.background = {
+      version: 1,
+      showWorldArtwork: false,
+      layers: [newLayer(source.key, "Restored", "background")],
+    };
+    markChanged(p, scene);
+    expect((await repo.save(p)).failures).toEqual([]);
+  });
+  it("round-trips shared backgrounds across worlds and rejects stale layer edits without changing objects", async () => {
+    const db = adminDB(),
+      repo = new FirestoreProjectRepository(db),
+      project = seedProject().project;
+    const source = addAsset(project, vk, {
+      name: "Underwater",
+      url: "https://example.test/underwater.png",
+      storage_path:
+        "studio-worlds/sea_wonders/volumes/volume_01/sprites/test.png",
+      width: 1600,
+      height: 900,
+      size: 500,
+      mime: "image/png",
+    });
+    const target = itemKey("jungle_kingdom", "volume_01", "scene", "main"),
+      scene = project.records[target];
+    if (scene.kind !== "scene") throw new Error("fixture");
+    const entities = structuredClone(scene.scene.entities),
+      layer = {
+        ...newLayer(source.key, "Far reef", "background"),
+        mode: "tile" as const,
+        parallaxX: 0.2,
+        scrollX: -15,
+        tint: "#85dfff",
+        opacity: 0.7,
+      };
+    scene.scene.background = {
+      version: 1,
+      showWorldArtwork: false,
+      layers: [
+        layer,
+        { ...newLayer(source.key, "Near reef", "foreground"), parallaxX: 1.3 },
+      ],
+    };
+    const saved = await repo.save(project);
+    expect(saved.failures).toEqual([]);
+    acknowledgeSaves(project, saved.saved);
+    expect(project.dirty).toEqual([]);
+    const first = await repo.load(),
+      stale = await repo.load(),
+      loaded = first.records[target];
+    if (loaded.kind !== "scene") throw new Error("fixture");
+    expect(loaded.scene.background).toEqual(scene.scene.background);
+    expect(loaded.scene.entities).toEqual(entities);
+    loaded.scene.background!.layers[0].scrollX = 25;
+    markChanged(first, loaded);
+    expect((await repo.save(first)).failures).toEqual([]);
+    const old = stale.records[target];
+    if (old.kind !== "scene") throw new Error("fixture");
+    old.scene.background!.layers[0].opacity = 0.1;
+    markChanged(stale, old);
+    expect((await repo.save(stale)).failures[0].message).toContain("Conflict");
+    expect(
+      (await getDocFromServer(doc(db, target))).data()?.background.layers[0]
+        .scrollX,
+    ).toBe(25);
+    const raw = (await getDocFromServer(doc(db, target))).data()!;
+    expect(raw.preview).toBeUndefined();
+    expect(raw.elapsed).toBeUndefined();
+    expect(raw.entities).toEqual(entities);
+    expect(() => trashItem(first, source.key)).toThrow("uses");
+  });
+  it("keeps connected volumes atomic on a conflict while saving an unrelated volume", async () => {
+    const db = adminDB(),
+      repo = new FirestoreProjectRepository(db);
+    expect((await repo.save(seedProject().project)).failures).toEqual([]);
+    const p = await repo.load(),
+      source = addAsset(p, vk, {
+        name: "Shared new image",
+        url: "https://example.test/new.png",
+        storage_path: null,
+        width: 500,
+        height: 500,
+        size: 100,
+        mime: "image/png",
+      });
+    const target = itemKey("jungle_kingdom", "volume_01", "scene", "main"),
+      scene = p.records[target];
+    if (scene.kind !== "scene") throw new Error("fixture");
+    scene.scene.background = {
+      version: 1,
+      showWorldArtwork: false,
+      layers: [newLayer(source.key, "Shared layer", "background")],
+    };
+    markChanged(p, scene);
+    await setDoc(
+      doc(db, target),
+      { name: "Concurrent remote edit" },
+      { merge: true },
+    );
+    const unrelated = itemKey("polar_explorers", "volume_01", "scene", "main");
+    renameItem(p, unrelated, "Independent change");
+    const result = await repo.save(p);
+    expect(result.failures.map((f) => f.scope)).toEqual(
+      expect.arrayContaining([vk, volumeKey("jungle_kingdom", "volume_01")]),
+    );
+    expect((await getDocFromServer(doc(db, source.key))).exists()).toBe(false);
+    expect(
+      (await getDocFromServer(doc(db, target))).data()?.background,
+    ).toBeUndefined();
+    acknowledgeSaves(p, result.saved);
+    expect(p.dirty).toContain(source.key);
+    expect(p.dirty).toContain(target);
+    expect(p.dirty).not.toContain(unrelated);
   });
 });
 describe("Storage compatibility against unchanged rules", () => {

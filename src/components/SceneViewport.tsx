@@ -3,6 +3,7 @@ import type { SceneDocument } from "../data/scene";
 import { SceneController, type Overlay } from "../features/editor/controller";
 import { useEditor } from "../features/editor/store";
 import type { Point } from "../features/editor/geometry";
+import { useProject } from "../features/project/store";
 
 type Props = {
   sceneKey: string;
@@ -23,6 +24,7 @@ export default function SceneViewport({
   const latest = useRef(onSelect);
   latest.current = onSelect;
   const editor = useEditor();
+  const project = useProject((s) => s.project);
   const [overlay, setOverlay] = useState<Overlay>({ handles: [], error: "" });
   const authored = scene.entities.find((e) => e.id === selectedId);
   const live =
@@ -46,7 +48,7 @@ export default function SceneViewport({
   }, []);
   useEffect(() => {
     controller.current?.update(sceneKey, scene, selectedId);
-  }, [sceneKey, scene, selectedId, editor]);
+  }, [sceneKey, scene, selectedId, editor, project]);
   return (
     <div
       ref={host}

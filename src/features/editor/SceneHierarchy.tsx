@@ -24,7 +24,9 @@ export default function SceneHierarchy({
 }) {
   const editor = useEditor(),
     selected = (editor.sessions[sceneKey] ?? EMPTY_SESSION).selectedIds[0];
-  const locked = !!scene.entities.find((e) => e.id === selected)?.locked;
+  const preview = !!editor.sessions[sceneKey]?.preview;
+  const locked =
+    !!scene.entities.find((e) => e.id === selected)?.locked || preview;
   const renameTarget =
     editor.rename?.sceneKey === sceneKey
       ? scene.entities.find((e) => e.id === editor.rename?.id)
@@ -65,6 +67,7 @@ export default function SceneHierarchy({
                     type="button"
                     aria-label={`${entity.visible === false ? "Show" : "Hide"} ${entity.name}`}
                     aria-pressed={entity.visible !== false}
+                    disabled={preview}
                     title={`${entity.visible === false ? "Show" : "Hide"} ${entity.name}`}
                     onClick={() =>
                       patchEntity(
@@ -81,6 +84,7 @@ export default function SceneHierarchy({
                     type="button"
                     aria-label={`${entity.locked ? "Unlock" : "Lock"} ${entity.name}`}
                     aria-pressed={!!entity.locked}
+                    disabled={preview}
                     title={`${entity.locked ? "Unlock" : "Lock"} ${entity.name}`}
                     onClick={() =>
                       patchEntity(

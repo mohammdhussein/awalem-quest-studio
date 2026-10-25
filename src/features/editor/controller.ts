@@ -10,6 +10,10 @@ import {
 import type { SceneDocument, SceneEntity } from "../../data/scene";
 import { makeGraphic, paintBackground } from "./art";
 import { acquireTexture, releaseTexture } from "./textures";
+import { BackgroundRenderer } from "../backgrounds/renderer";
+import { layerEntity } from "../backgrounds/model";
+import { entityImageUrl, resolveAsset } from "../assets/catalog";
+import { useProject } from "../project/store";
 import {
   anchor,
   boundsCorners,
@@ -29,6 +33,8 @@ import {
 } from "./geometry";
 import {
   beginGesture,
+  beginLayerGesture,
+  effectiveBackground,
   cancelGesture,
   finishGesture,
   previewGesture,
@@ -68,6 +74,9 @@ export class SceneController {
     foreground: new Container(),
   };
   private decor = [new Graphics(), new Graphics(), new Graphics()];
+  private backImages = new Container();
+  private frontImages = new Container();
+  private backgrounds?: BackgroundRenderer;
   private grid = new Graphics();
   private overlay = new Graphics();
   private nodes = new Map<string, RenderNode>();
@@ -113,11 +122,19 @@ export class SceneController {
       this.sceneRoot.addChild(
         base,
         far,
+        this.backImages,
         this.layers.background,
         this.layers.playfield,
         this.layers.foreground,
         front,
+        this.frontImages,
       );
+      this.backgrounds = new BackgroundRenderer(
+        this.backImages,
+        this.frontImages,
+        () => this.sync(),
+      );
+      this.app.ticker.add(this.previewFrame);
       this.app.stage.addChild(this.sceneRoot, this.grid, this.overlay);
       for (const layer of Object.values(this.layers)) {
         layer.sortableChildren = true;
@@ -206,12 +223,22 @@ export class SceneController {
   }
   private entities() {
     const gesture = useEditor.getState().gesture;
+    const project = useProject.getState().project;
     return (
-      this.scene?.entities.map((e) =>
-        gesture?.sceneKey === this.key && gesture.id === e.id
-          ? { ...e, ...gesture.patch }
-          : e,
-      ) ?? []
+      this.scene?.entities.map((e) => {
+        const authored =
+          gesture?.sceneKey === this.key &&
+          !gesture.layerBefore &&
+          gesture.id === e.id
+            ? { ...e, ...gesture.patch }
+            : e;
+        return project && this.scene && e.shape === "image"
+          ? {
+              ...authored,
+              assetUrl: entityImageUrl(project, this.scene, authored),
+            }
+          : authored;
+      }) ?? []
     );
   }
   private sync() {
@@ -343,6 +370,14 @@ export class SceneController {
       this.decor[2],
       this.scene.world_id,
     );
+    const background = effectiveBackground(this.key);
+    this.decor.forEach((g) => {
+      g.visible = background.showWorldArtwork;
+    });
+    const project = useProject.getState().project;
+    this.backgrounds?.sync(background, (key) =>
+      project ? resolveAsset(project, key)?.url : undefined,
+    );
     setBounds(this.key, bounds);
     this.draw();
   }
@@ -354,6 +389,7 @@ export class SceneController {
       height = this.host.clientHeight;
     this.sceneRoot.position.set(c.x, c.y);
     this.sceneRoot.scale.set(c.zoom);
+    this.drawBackgrounds();
     this.grid.clear();
     this.overlay.clear();
     if (settings.grid) {
@@ -375,8 +411,7 @@ export class SceneController {
     this.overlay
       .rect(c.x, c.y, 960 * c.zoom, 540 * c.zoom)
       .stroke({ color: 0x8faebf, alpha: 0.5, width: 1 });
-    const e = this.entities().find((e) => e.id === this.selected),
-      entry = e && this.nodes.get(e.id);
+    const { entity: e, entry, isLayer } = this.selectedObject();
     this.handles = [];
     if (e && entry && e.visible !== false) {
       const corners = boundsCorners(entry.bounds).map((p) =>
@@ -388,7 +423,7 @@ export class SceneController {
         .stroke({ color: e.locked ? 0x8b9baa : 0xffd478, width: 1.5 });
       const center = worldToScreen({ x: e.x, y: e.y }, c);
       this.overlay.circle(center.x, center.y, 3).fill(0xffd478);
-      if (!e.locked) {
+      if (!e.locked && !session(this.key).preview) {
         const tool = useEditor.getState().tool;
         if (tool === "move") {
           this.overlay
@@ -404,7 +439,7 @@ export class SceneController {
             { x: center.x + 50, y: center.y, kind: "mx", label: "Move X" },
             { x: center.x, y: center.y - 50, kind: "my", label: "Move Y" },
           ];
-        } else if (tool === "rotate") {
+        } else if (tool === "rotate" && !isLayer) {
           const top = {
             x:
               (Math.min(...corners.map((p) => p.x)) +
@@ -418,8 +453,11 @@ export class SceneController {
             .stroke({ color: 0xffd478, alpha: 0.6, width: 1 });
           this.handles = [{ ...top, kind: "rotate", label: "Rotate object" }];
         } else if (
-          e.shape !== "image" ||
-          (e.assetUrl && this.textures.has(e.assetUrl))
+          tool === "scale" &&
+          (isLayer
+            ? !!entry.bounds.ready
+            : e.shape !== "image" ||
+              (e.assetUrl && this.textures.has(e.assetUrl)))
         )
           this.handles = Object.entries(resizeHandles).map(([kind, h]) => ({
             ...worldToScreen(
@@ -436,15 +474,23 @@ export class SceneController {
     }
     this.onOverlay({
       handles: this.handles,
-      error: this.errors.size
-        ? `${this.errors.size} image(s) could not load. Check source access or retry images.`
-        : "",
+      error: [
+        this.errors.size
+          ? `${this.errors.size} image(s) could not load. Check source access, Storage CORS, or connectivity, then retry.`
+          : "",
+        this.backgrounds?.error() ?? "",
+        this.entities().some((e) => e.shape === "image" && !e.assetUrl)
+          ? "An image asset is missing or in Trash. Relink its asset reference."
+          : "",
+      ]
+        .filter(Boolean)
+        .join(" "),
     });
   }
   startHandle(kind: string, event: PointerEvent) {
-    if (event.button !== 0 || !this.selected) return;
-    const entity = this.entities().find((e) => e.id === this.selected),
-      b = entity && this.nodes.get(entity.id)?.bounds;
+    if (event.button !== 0 || session(this.key).preview) return;
+    const { entity, entry, isLayer } = this.selectedObject(),
+      b = entry?.bounds;
     if (!entity || !b || entity.locked) return;
     const point = this.clientToWorld(event.clientX, event.clientY);
     const label =
@@ -453,7 +499,12 @@ export class SceneController {
         : resizeHandles[kind]
           ? "Scale object"
           : "Move object";
-    if (!beginGesture(this.key, entity.id, label)) return;
+    if (
+      !(isLayer
+        ? beginLayerGesture(this.key, entity.id, label, "pointer")
+        : beginGesture(this.key, entity.id, label))
+    )
+      return;
     const h = resizeHandles[kind],
       handleWorld = h
         ? localToWorld(entity, {
@@ -493,6 +544,7 @@ export class SceneController {
       return;
     }
     if (event.button !== 0) return;
+    if (session(this.key).preview) return;
     event.preventDefault();
     this.app.canvas.focus({ preventScroll: true });
     const p = this.clientPoint(event.clientX, event.clientY);
@@ -639,6 +691,7 @@ export class SceneController {
   };
   private context = (e: Event) => e.preventDefault();
   retryImages() {
+    this.backgrounds?.retry();
     for (const url of this.errors) {
       releaseTexture(url);
       this.urls.delete(url);
@@ -650,6 +703,7 @@ export class SceneController {
     if (this.disposed) return;
     this.cancel();
     this.disposed = true;
+    this.backgrounds?.dispose();
     this.observer?.disconnect();
     if (this.mounted) {
       const canvas = this.app.canvas;
@@ -670,4 +724,46 @@ export class SceneController {
     this.urls.clear();
     this.nodes.clear();
   }
+  private selectedObject() {
+    const target = session(this.key).target;
+    if (target?.kind === "background") {
+      const layer = effectiveBackground(this.key).layers.find(
+          (l) => l.id === target.id,
+        ),
+        bounds = this.backgrounds?.bounds(target.id);
+      if (layer?.mode === "custom" && bounds)
+        return { entity: layerEntity(layer), entry: { bounds }, isLayer: true };
+      return { entity: undefined, entry: undefined, isLayer: true };
+    }
+    const entity = this.entities().find((e) => e.id === this.selected);
+    return {
+      entity,
+      entry: entity && this.nodes.get(entity.id),
+      isLayer: false,
+    };
+  }
+  private drawBackgrounds() {
+    if (!this.key) return;
+    const preview = session(this.key).preview;
+    const seconds = preview
+      ? preview.elapsed +
+        (preview.playing ? (performance.now() - preview.startedAt) / 1000 : 0)
+      : null;
+    this.backgrounds?.draw(
+      effectiveBackground(this.key),
+      this.camera,
+      this.host.clientWidth,
+      this.host.clientHeight,
+      seconds,
+    );
+  }
+  private previewFrame = () => {
+    if (
+      this.mounted &&
+      !this.disposed &&
+      this.key &&
+      session(this.key).preview?.playing
+    )
+      this.drawBackgrounds();
+  };
 }

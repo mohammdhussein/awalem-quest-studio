@@ -46,6 +46,14 @@ import {
   useEditor,
 } from "./features/editor/store";
 import { editorShortcuts } from "./features/editor/shortcuts";
+import BackgroundPanel from "./features/backgrounds/BackgroundPanel";
+import BackgroundInspector from "./features/backgrounds/BackgroundInspector";
+import {
+  assignBackgroundAsset,
+  type AssetAction,
+} from "./features/backgrounds/commands";
+import { effectiveBackground, session } from "./features/editor/store";
+type BackgroundPicker = { sceneKey: string; action: AssetAction; id?: string };
 
 const availableShapes: Shape[] = [
   "fish",
@@ -87,6 +95,8 @@ function StudioEditor({ auth }: { auth: ReturnType<typeof useStudioAuth> }) {
   const [busy, setBusy] = useState(false),
     [progress, setProgress] = useState<number | null>(null);
   const [confirmLoad, setConfirmLoad] = useState(false);
+  const [backgroundPicker, setBackgroundPicker] =
+    useState<BackgroundPicker | null>(null);
   const [leftWidth, setLeftWidth] = useState(() => readPanelSize("left", 280));
   const [rightWidth, setRightWidth] = useState(() =>
     readPanelSize("right", 270),
@@ -100,6 +110,13 @@ function StudioEditor({ auth }: { auth: ReturnType<typeof useStudioAuth> }) {
       ? active
       : null;
   const scene = sceneRecord?.scene;
+  const selectedLayer =
+    sceneRecord && session(sceneRecord.key).target?.kind === "background"
+      ? effectiveBackground(sceneRecord.key).layers.find(
+          (l) => l.id === session(sceneRecord.key).target?.id,
+        )
+      : undefined;
+  const preview = !!(sceneRecord && session(sceneRecord.key).preview);
   const selectedRecord = project?.selected_key
     ? project.records[project.selected_key]
     : null;
@@ -200,17 +217,14 @@ function StudioEditor({ auth }: { auth: ReturnType<typeof useStudioAuth> }) {
       selectEntity(target, id);
   }
   function useAsset(asset: AssetRecord, position?: { x: number; y: number }) {
-    if (
-      !sceneRecord ||
-      asset.world_id !== sceneRecord.world_id ||
-      asset.volume_id !== sceneRecord.volume_id
-    ) {
-      setStatus("Open a scene in this asset’s volume before adding it.");
+    if (!sceneRecord) {
+      setStatus("Open a scene before adding this asset.");
       return;
     }
     addEntity("image", {
       name: asset.name,
       assetId: asset.id,
+      assetKey: asset.key,
       assetUrl: asset.url,
       ...(asset.storage_path ? { assetPath: asset.storage_path } : {}),
       ...position,
@@ -253,16 +267,31 @@ function StudioEditor({ auth }: { auth: ReturnType<typeof useStudioAuth> }) {
       );
     });
   }
-  async function uploadImage(file?: File) {
+  async function uploadImage(file?: File, backgroundTarget?: BackgroundPicker) {
+    finishGesture();
+    const destination = backgroundTarget
+      ? useProject.getState().project?.records[backgroundTarget.sceneKey]
+      : null;
+    if (
+      backgroundTarget &&
+      (!destination ||
+        destination.kind !== "scene" ||
+        isTrashed(useProject.getState().project!, destination.key))
+    ) {
+      setStatus("The background destination is unavailable.");
+      return;
+    }
     if (!file || !context?.volume_id) return;
-    const targetWorld = context.world_id,
-      targetVolume = context.volume_id;
+    const targetWorld = destination?.world_id ?? context.world_id,
+      targetVolume = destination?.volume_id ?? context.volume_id;
     const targetScene =
-      sceneRecord?.world_id === targetWorld &&
+      backgroundTarget?.sceneKey ??
+      (sceneRecord?.world_id === targetWorld &&
       sceneRecord?.volume_id === targetVolume
         ? sceneRecord.key
-        : null;
+        : null);
     const parent =
+      !backgroundTarget &&
       selectedRecord &&
       ["volume", "mission", "folder"].includes(selectedRecord.kind) &&
       selectedRecord.volume_id === targetVolume &&
@@ -294,7 +323,7 @@ function StudioEditor({ auth }: { auth: ReturnType<typeof useStudioAuth> }) {
           size: file.size,
           mime: file.type,
         });
-      });
+      }, false);
       if (!imported) {
         downloadJson(
           {
@@ -311,7 +340,21 @@ function StudioEditor({ auth }: { auth: ReturnType<typeof useStudioAuth> }) {
         );
       }
       const current = useProject.getState().project!;
-      if (
+      if (backgroundTarget && targetScene) {
+        if (
+          !assignBackgroundAsset(
+            targetScene,
+            imported,
+            backgroundTarget.action,
+            backgroundTarget.id,
+          )
+        )
+          throw new Error(
+            useEditor.getState().message ||
+              "The file is uploaded and cataloged, but could not be assigned.",
+          );
+        setBackgroundPicker(null);
+      } else if (
         targetScene &&
         current.records[targetScene] &&
         !isTrashed(current, targetScene)
@@ -321,6 +364,7 @@ function StudioEditor({ auth }: { auth: ReturnType<typeof useStudioAuth> }) {
           {
             name: file.name,
             assetId: imported.id,
+            assetKey: imported.key,
             assetUrl: imported.url,
             assetPath: uploaded.path,
           },
@@ -454,6 +498,15 @@ function StudioEditor({ auth }: { auth: ReturnType<typeof useStudioAuth> }) {
           {scene && sceneRecord && (
             <SceneHierarchy sceneKey={sceneRecord.key} scene={scene} />
           )}
+          {sceneRecord && (
+            <BackgroundPanel
+              sceneKey={sceneRecord.key}
+              onChoose={(action, id) => {
+                finishGesture();
+                setBackgroundPicker({ sceneKey: sceneRecord.key, action, id });
+              }}
+            />
+          )}
         </aside>
         <PanelDivider side="left" width={leftWidth} onResize={setLeftWidth} />
         <main
@@ -513,7 +566,7 @@ function StudioEditor({ auth }: { auth: ReturnType<typeof useStudioAuth> }) {
               <button
                 className="soft-btn"
                 type="button"
-                disabled={!scene}
+                disabled={!scene || preview}
                 onClick={() => addEntity(shape)}
               >
                 + Add sample
@@ -521,7 +574,7 @@ function StudioEditor({ auth }: { auth: ReturnType<typeof useStudioAuth> }) {
               <button
                 className="soft-btn"
                 type="button"
-                disabled={!auth.admin || busy || !context?.volume_id}
+                disabled={!auth.admin || busy || !context?.volume_id || preview}
                 onClick={() => fileInput.current?.click()}
               >
                 Upload sprite
@@ -549,6 +602,13 @@ function StudioEditor({ auth }: { auth: ReturnType<typeof useStudioAuth> }) {
                 worldId={context.world_id}
                 volumeId={context.volume_id}
                 onAdd={useAsset}
+                disabled={preview || busy}
+                onBackground={
+                  sceneRecord
+                    ? (asset) =>
+                        assignBackgroundAsset(sceneRecord.key, asset, "base")
+                    : undefined
+                }
               />
             ) : (
               <p className="hint">Choose a volume to browse reusable images.</p>
@@ -571,8 +631,15 @@ function StudioEditor({ auth }: { auth: ReturnType<typeof useStudioAuth> }) {
           </div>
           {selectedRecord && selectedRecord.kind !== "scene" ? (
             <ItemInspector record={selectedRecord} />
+          ) : selectedLayer && sceneRecord ? (
+            <BackgroundInspector
+              sceneKey={sceneRecord.key}
+              layer={selectedLayer}
+            />
           ) : selected && sceneRecord ? (
-            <EntityInspector sceneKey={sceneRecord.key} selected={selected} />
+            <fieldset className="editor-fieldset" disabled={preview}>
+              <EntityInspector sceneKey={sceneRecord.key} selected={selected} />
+            </fieldset>
           ) : (
             <p className="hint">
               Select a scene object, mission, folder, or asset to inspect it.
@@ -591,6 +658,78 @@ function StudioEditor({ auth }: { auth: ReturnType<typeof useStudioAuth> }) {
           />
         </aside>
       </div>
+      {backgroundPicker &&
+        (() => {
+          const target = project.records[backgroundPicker.sceneKey];
+          if (target?.kind !== "scene" || isTrashed(project, target.key))
+            return null;
+          return (
+            <Dialog
+              title="Choose background image"
+              onClose={() => setBackgroundPicker(null)}
+            >
+              <p>
+                Choose a reusable image from any world, or upload a new image.
+                Existing scene objects are preserved.
+              </p>
+              <label className="upload-background-label">
+                Upload background
+                <input
+                  aria-label="Upload background"
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp"
+                  disabled={!auth.admin || busy}
+                  onChange={(e) => {
+                    void uploadImage(e.target.files?.[0], backgroundPicker);
+                    e.target.value = "";
+                  }}
+                />
+              </label>
+              {!auth.admin && (
+                <p className="hint">
+                  Sign in as a studio administrator to upload. Existing catalog
+                  images remain available locally.
+                </p>
+              )}
+              <AssetBrowser
+                picker
+                disabled={busy}
+                worldId={target.world_id}
+                volumeId={target.volume_id!}
+                onAdd={(asset) => {
+                  if (
+                    assignBackgroundAsset(
+                      target.key,
+                      asset,
+                      backgroundPicker.action,
+                      backgroundPicker.id,
+                    )
+                  )
+                    setBackgroundPicker(null);
+                }}
+              />
+              {busy && <p role="status">Uploading image… {progress ?? 0}%</p>}
+              {editor.message && (
+                <p role="alert" className="error-text">
+                  {editor.message}
+                </p>
+              )}
+              {!busy && (
+                <p role="status" className="hint">
+                  {status}
+                </p>
+              )}
+              <div className="dialog-actions">
+                <button
+                  className="soft-btn"
+                  onClick={() => setBackgroundPicker(null)}
+                >
+                  Close
+                </button>
+              </div>
+            </Dialog>
+          );
+        })()}
       {confirmLoad && (
         <Dialog
           title="Load cloud project?"

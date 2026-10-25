@@ -1,5 +1,11 @@
 # Awalem Quest Studio — 2.5D Web Editor
 
+## Phase 3 backgrounds
+
+Use the **Backgrounds** panel to Set background, add background/foreground layers, or replace a selected layer image. The picker offers **Upload background** and assets from all worlds; shared images retain independent transforms in each scene. Select a layer to edit Fit/Fill/Stretch/Tile/Custom mode, offsets, scale, tint, opacity, depth, locks, and parallax. Custom layers support Move/Scale handles. Play/Pause/Stop previews never change authored scene data. A mission's **Edit scene background** opens its starting scene; each scene has separate settings.
+
+Existing objects are preserved when replacing backgrounds. Local drafts, undo/redo, and explicit **Save to Firebase** also cover image layers. See [PHASE_3.md](PHASE_3.md) for implementation, verification, CORS operations, rollout, and manual checks. Storage CORS can be inspected with `node scripts/storage-cors.mjs --check`; administrative Apply/Restore operations are documented there.
+
 ## Phase 2 scene editing
 
 Use **Set up / open Mission 1** to organize the existing Sea Wonders Main Scene locally. Select objects in the canvas or Scene Hierarchy, then use **W / E / R** for move, rotate, and scale. The Inspector supports independent scales, dimensions, opacity, visibility/locking, and image origins. Camera zoom/pan, grid/angle snapping, aspect locking, and depth controls are available in the scene toolbar.

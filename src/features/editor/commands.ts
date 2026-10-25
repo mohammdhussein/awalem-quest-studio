@@ -1,5 +1,11 @@
 import type { SceneDocument, SceneEntity } from "../../data/scene";
 import { validateScene } from "../project/validation";
+import type { BackgroundConfiguration } from "../backgrounds/model";
+export type EditorTarget = { kind: "entity" | "background"; id: string };
+export type BackgroundDelta = {
+  before: BackgroundConfiguration | null;
+  after: BackgroundConfiguration | null;
+};
 
 export type EntityDelta = {
   id: string;
@@ -14,6 +20,9 @@ export type SceneCommand = {
   bytes: number;
   selectedBefore: string[];
   selectedAfter: string[];
+  background?: BackgroundDelta;
+  targetBefore?: EditorTarget | null;
+  targetAfter?: EditorTarget | null;
 };
 export function applyCommand(
   scene: SceneDocument,
@@ -44,8 +53,23 @@ export function applyCommand(
         structuredClone(value),
       );
   }
+  const next = { ...scene, entities };
+  if (command.background) {
+    const expected = reverse
+      ? command.background.after
+      : command.background.before;
+    if (JSON.stringify(scene.background ?? null) !== JSON.stringify(expected))
+      throw new Error(
+        "Background changed outside this history. Reload before continuing.",
+      );
+    const value = reverse
+      ? command.background.before
+      : command.background.after;
+    if (value === null) delete next.background;
+    else next.background = structuredClone(value);
+  }
   return validateScene(
-    { ...scene, entities },
+    next,
     scene.world_id,
     scene.volume_id,
     scene.scene_id ?? "main",

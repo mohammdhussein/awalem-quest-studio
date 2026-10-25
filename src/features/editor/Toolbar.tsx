@@ -41,7 +41,7 @@ export default function Toolbar({ sceneKey }: { sceneKey: string }) {
       <span className="toolbar-separator" />
       <button
         type="button"
-        disabled={!s.undo.length && !gesture}
+        disabled={!!s.preview || (!s.undo.length && !gesture)}
         title={s.undo.at(-1)?.label ?? "Undo"}
         onClick={() => undo(sceneKey)}
       >
@@ -49,7 +49,7 @@ export default function Toolbar({ sceneKey }: { sceneKey: string }) {
       </button>
       <button
         type="button"
-        disabled={!s.redo.length}
+        disabled={!!s.preview || !s.redo.length}
         title={s.redo.at(-1)?.label ?? "Redo"}
         onClick={() => redo(sceneKey)}
       >

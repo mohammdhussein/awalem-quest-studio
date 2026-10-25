@@ -22,7 +22,10 @@ type ProjectStore = {
   notice: string;
   mutation: number;
   storageBlocked: boolean;
-  change: (job: (project: ProjectSnapshot) => void) => void;
+  change: (
+    job: (project: ProjectSnapshot) => void,
+    finishEditing?: boolean,
+  ) => void;
   select: (key: string) => Promise<void>;
   toggle: (key: string) => void;
   editEntity: (
@@ -43,8 +46,8 @@ export const useProject = create<ProjectStore>((set, get) => ({
   notice: "",
   mutation: 0,
   storageBlocked: false,
-  change(job) {
-    sceneLifecycle.finish?.();
+  change(job, finishEditing = true) {
+    if (finishEditing) sceneLifecycle.finish?.();
     const current = get().project;
     if (!current) return;
     try {
