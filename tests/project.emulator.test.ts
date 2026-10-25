@@ -31,6 +31,7 @@ import {
   trashItem,
   restoreItem,
   addAsset,
+  moveItem,
 } from "../src/features/project/commands";
 import { isTrashed, itemKey, volumeKey } from "../src/features/project/model";
 import { newLayer } from "../src/features/backgrounds/model";
@@ -64,6 +65,133 @@ const adminDB = () =>
     .authenticatedContext(`admin-${crypto.randomUUID()}`, { studioAdmin: true })
     .firestore() as unknown as Firestore;
 describe("Firestore project persistence against unchanged rules", () => {
+  it("acknowledges identical existing starter records without a baseline and safely saves new local scenes", async () => {
+    const db = adminDB(),
+      repo = new FirestoreProjectRepository(db),
+      initial = seedProject().project;
+    expect((await repo.save(initial)).failures).toEqual([]);
+    const oldWorld = (
+        await getDocFromServer(doc(db, "studio_worlds/sea_wonders"))
+      ).data()!,
+      oldScene = (await getDocFromServer(doc(db, main))).data()!;
+    const fresh = seedProject().project,
+      newScene = createItem(fresh, "scene", "New local draft", vk);
+    const result = await repo.save(fresh);
+    expect(result.failures).toEqual([]);
+    acknowledgeSaves(fresh, result.saved);
+    expect(fresh.dirty).toEqual([]);
+    expect((await getDocFromServer(doc(db, newScene.key))).exists()).toBe(true);
+    expect(
+      (await getDocFromServer(doc(db, "studio_worlds/sea_wonders"))).data(),
+    ).toEqual(oldWorld);
+    expect((await getDocFromServer(doc(db, main))).data()).toEqual(oldScene);
+    expect((await getDocFromServer(doc(db, vk))).data()?.revision).toBe(2);
+    expect((await repo.save(fresh)).saved).toEqual([]);
+  });
+  it("keeps different local drafts and cloud content protected when no baseline exists", async () => {
+    const db = adminDB(),
+      repo = new FirestoreProjectRepository(db);
+    expect((await repo.save(seedProject().project)).failures).toEqual([]);
+    await setDoc(
+      doc(db, main),
+      { name: "Cloud-authored scene" },
+      { merge: true },
+    );
+    const cloud = (await getDocFromServer(doc(db, main))).data()!;
+    const fresh = seedProject().project,
+      local = fresh.records[main];
+    if (local.kind !== "scene") throw new Error("fixture");
+    local.scene.entities[0].x = 876;
+    markChanged(fresh, local);
+    const result = await repo.save(fresh);
+    acknowledgeSaves(fresh, result.saved);
+    expect(result.failures.map((f) => f.scope)).toEqual([vk]);
+    expect(result.failures[0].message).toContain("Conflict");
+    expect(fresh.dirty).toContain(main);
+    expect(local.scene.entities[0].x).toBe(876);
+    expect((await getDocFromServer(doc(db, main))).data()).toEqual(cloud);
+    expect(fresh.cloud_bases["studio_worlds/sea_wonders"]).not.toBeNull();
+  });
+  it("continues rejecting a known stale baseline even when the new cloud content matches the local desired state", async () => {
+    const db = adminDB(),
+      repo = new FirestoreProjectRepository(db);
+    await repo.save(seedProject().project);
+    const stale = await repo.load();
+    await setDoc(doc(db, main), { name: "Same desired name" }, { merge: true });
+    renameItem(stale, main, "Same desired name");
+    const result = await repo.save(stale);
+    expect(result.failures[0].message).toContain("Conflict");
+    expect(stale.dirty).toContain(main);
+  });
+  it("recovers an untouched revision-one starter as the baseline for local objects, assets, background, and mission organization", async () => {
+    const db = adminDB(),
+      repo = new FirestoreProjectRepository(db);
+    expect((await repo.save(seedProject().project)).failures).toEqual([]);
+    const fresh = seedProject().project,
+      mission = createItem(fresh, "mission", "Mission 1", vk),
+      asset = addAsset(fresh, vk, {
+        name: "Local reef",
+        url: "https://example.test/local-reef.png",
+        storage_path: null,
+        width: 1600,
+        height: 900,
+        size: 500,
+        mime: "image/png",
+      }),
+      scene = fresh.records[main];
+    if (mission.kind !== "mission" || scene.kind !== "scene")
+      throw new Error("fixture");
+    mission.starting_scene_id = "main";
+    moveItem(fresh, main, mission.key);
+    scene.scene.entities.push({
+      ...scene.scene.entities[0],
+      id: "local-image",
+      name: "Local image",
+      shape: "image",
+      assetKey: asset.key,
+      assetId: asset.id,
+      assetUrl: asset.url,
+      x: 650,
+    });
+    scene.scene.background = {
+      version: 1,
+      showWorldArtwork: false,
+      layers: [newLayer(asset.key, "Local background", "background")],
+    };
+    markChanged(fresh, scene);
+    const expected = structuredClone(scene.scene),
+      result = await repo.save(fresh);
+    expect(result.failures).toEqual([]);
+    expect(result.recovered).toEqual([main]);
+    acknowledgeSaves(fresh, result.saved);
+    expect(fresh.dirty).toEqual([]);
+    const loaded = (await repo.load()).records[main];
+    if (loaded.kind !== "scene") throw new Error("fixture");
+    expect(loaded.scene).toEqual(expected);
+    expect(loaded.parent_key).toBe(mission.key);
+    expect((await getDocFromServer(doc(db, asset.key))).exists()).toBe(true);
+    expect(
+      (await getDocFromServer(doc(db, "studio_worlds/sea_wonders"))).data()
+        ?.revision,
+    ).toBe(1);
+  });
+  it("does not recover missing baselines for later cloud revisions even when they resemble starter content", async () => {
+    const db = adminDB(),
+      repo = new FirestoreProjectRepository(db);
+    await repo.save(seedProject().project);
+    await setDoc(doc(db, main), { revision: 2 }, { merge: true });
+    const fresh = seedProject().project,
+      scene = fresh.records[main];
+    if (scene.kind !== "scene") throw new Error("fixture");
+    scene.scene.entities[0].x = 555;
+    markChanged(fresh, scene);
+    const result = await repo.save(fresh);
+    expect(result.failures[0].message).toContain("Conflict");
+    expect(result.recovered).toEqual([]);
+    expect(
+      (await getDocFromServer(doc(db, main))).data()?.entities[0].x,
+    ).not.toBe(555);
+  });
   it("saves and loads nested folders, mission configuration, and independent scenes", async () => {
     const repo = new FirestoreProjectRepository(adminDB()),
       { project } = seedProject();

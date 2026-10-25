@@ -242,11 +242,14 @@ function StudioEditor({ auth }: { auth: ReturnType<typeof useStudioAuth> }) {
       acknowledgeSaves(current, result.saved);
       persistProjectState(current);
       await flushDraft();
+      const recovered = result.recovered?.length
+        ? ` Recovered ${result.recovered.length} unchanged starter scene baseline(s); local edits were preserved.`
+        : "";
       setStatus(
         result.failures.length
-          ? `Saved ${result.saved.length} records. Unsaved scopes: ${result.failures.map((f) => `${f.scope}: ${f.message}`).join(" | ")}`
+          ? `Saved ${result.saved.length} records.${recovered} Unsaved scopes: ${result.failures.map((f) => `${f.scope}: ${f.message}`).join(" | ")}`
           : result.saved.length
-            ? `Firebase confirmed ${result.saved.length} records. Acknowledged drafts are retained locally.`
+            ? `Firebase confirmed ${result.saved.length} records. Acknowledged drafts are retained locally.${recovered}`
             : "No pending changes to save.",
       );
     });

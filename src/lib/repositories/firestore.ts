@@ -146,7 +146,35 @@ export type SavedRecord = {
 export type SaveResult = {
   saved: SavedRecord[];
   failures: { scope: string; message: string }[];
+  recovered?: string[];
 };
+/** A missing baseline may acknowledge identical authored content, but never authorize an overwrite. */
+export function sameAuthoredRecord(
+  record: ProjectRecord,
+  raw: unknown,
+): boolean {
+  try {
+    const data = object(raw);
+    for (const field of ["id", "kind", "world_id", "volume_id"] as const)
+      if (data[field] !== undefined && data[field] !== record[field])
+        return false;
+    const remote = decodeRecord(
+      raw,
+      record.key,
+      record.kind,
+      record.world_id,
+      record.volume_id,
+      record.id,
+    );
+    const localData = encodeRecord(record),
+      remoteData = encodeRecord(remote);
+    delete localData.revision;
+    delete remoteData.revision;
+    return fingerprint(localData) === fingerprint(remoteData);
+  } catch {
+    return false;
+  }
+}
 /** Connected dirty volumes share one transaction so new shared references never precede their assets. */
 export function projectSaveGroups(
   project: ProjectSnapshot,
@@ -290,7 +318,8 @@ export class FirestoreProjectRepository {
   }
   async save(project: ProjectSnapshot): Promise<SaveResult> {
     validateProject(project);
-    const result: SaveResult = { saved: [], failures: [] };
+    const result: SaveResult = { saved: [], failures: [], recovered: [] };
+    const starters = seedProject().project.records;
     const bases = { ...project.cloud_bases };
     const groups = projectSaveGroups(project);
     const failedWorlds = new Set<string>();
@@ -342,14 +371,40 @@ export class FirestoreProjectRepository {
           const byKey = new Map(reads.map((r, i) => [r.key, allSnapshots[i]]));
           const snapshots = records.map((r) => byKey.get(r.key)!);
           const acknowledgements: SavedRecord[] = [];
+          const identical = new Set<string>();
+          const recovered: string[] = [];
           for (let index = 0; index < reads.length; index++) {
             const record = reads[index],
               snap = allSnapshots[index];
             const actual = snap.exists() ? fingerprint(snap.data()) : null;
-            if (actual !== (bases[record.key] ?? null))
-              throw new Error(
-                `Conflict in ${record.name}. Cloud content changed or has not been loaded. Export your local backup, then load the latest cloud project.`,
-              );
+            if (actual !== (bases[record.key] ?? null)) {
+              if (
+                (bases[record.key] ?? null) === null &&
+                snap.exists() &&
+                sameAuthoredRecord(record, snap.data())
+              ) {
+                identical.add(record.key);
+                acknowledgements.push({
+                  key: record.key,
+                  generation: record.generation,
+                  revision: Number(snap.data()?.revision ?? 0),
+                  base: actual!,
+                });
+              } else if (
+                (bases[record.key] ?? null) === null &&
+                record.kind === "scene" &&
+                record.revision === 0 &&
+                snap.data()?.revision === 1 &&
+                starters[record.key] &&
+                sameAuthoredRecord(starters[record.key], snap.data())
+              ) {
+                // This exact, first-save bundled scene is a known common ancestor; transaction retry rechecks it.
+                recovered.push(record.key);
+              } else
+                throw new Error(
+                  `Conflict in ${record.name}. Cloud content changed or has not been loaded. Export your local backup, then load the latest cloud project.`,
+                );
+            }
             if (
               dependencies.has(record.key) &&
               !records.some((r) => r.key === record.key) &&
@@ -362,11 +417,29 @@ export class FirestoreProjectRepository {
           for (let index = 0; index < records.length; index++) {
             const record = records[index],
               snap = snapshots[index];
+            // Retain the volume revision guard when this transaction also writes children.
+            const guard =
+              record.kind === "volume" &&
+              records.some(
+                (r) =>
+                  r.volume_id === record.id &&
+                  r.world_id === record.world_id &&
+                  !identical.has(r.key),
+              );
+            if (identical.has(record.key) && !guard) continue;
+            if (identical.has(record.key))
+              acknowledgements.splice(
+                acknowledgements.findIndex((a) => a.key === record.key),
+                1,
+              );
             const revision = Number(snap.data()?.revision ?? 0) + 1;
             const encoded = { ...encodeRecord(record), revision };
             const clearBackground =
               record.kind === "scene" && record.scene.background === undefined;
-            const acknowledged: Record<string,unknown> = { ...snap.data(), ...encoded };
+            const acknowledged: Record<string, unknown> = {
+              ...snap.data(),
+              ...encoded,
+            };
             if (clearBackground) delete acknowledged.background;
             // Merge retains existing fields not owned by this phase.
             tx.set(
@@ -385,10 +458,11 @@ export class FirestoreProjectRepository {
               base: fingerprint(acknowledged),
             });
           }
-          return acknowledgements;
+          return { acknowledgements, recovered };
         });
-        result.saved.push(...saved);
-        for (const ack of saved) bases[ack.key] = ack.base;
+        result.saved.push(...saved.acknowledgements);
+        result.recovered!.push(...saved.recovered);
+        for (const ack of saved.acknowledgements) bases[ack.key] = ack.base;
       } catch (error) {
         for (const scope of scopes)
           result.failures.push({ scope, message: cloudError(error) });
