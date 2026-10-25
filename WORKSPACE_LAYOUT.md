@@ -27,7 +27,7 @@ Parallax previews retain their prior camera policy and viewport when stopped. La
 - `src/features/editor/workspace.ts` owns versioned browser-only preferences, size constraints, compact overlays, focus snapshots, and layout preparation. `WorkspaceControls.tsx` and `WorkspaceSettings.tsx` integrate the UI.
 - Preferences use `awalem-workspace-v1` for visibility/asset height and the existing `awalem-panel-left`/`awalem-panel-right` width keys. Unsupported/malformed data or inaccessible storage falls back to safe defaults. A preference-storage failure does not block editing.
 - `src/App.tsx` keeps panels and the upload input mounted, measures available space, and coordinates the grid/drawer. `src/components/PanelDivider.tsx` provides accessible pointer/keyboard resizing and cancellation.
-- `src/workspace.css`, loaded after the legacy styles, removes conflicting minimum-size/forced-grid rules and supplies explicit grid placement, overlays, collapsed states, and compact chrome.
+- `src/workspace.css`, loaded after the legacy styles, overrides conflicting minimum-size/forced-grid rules and supplies explicit grid placement, overlays, collapsed states, and compact chrome.
 - Editor geometry, controller, session store, and Toolbar implement resize-aware camera policies, preview restoration, settings, and cancellation. Resize observers, media-query listeners, and workspace event listeners are cleaned up.
 - New workspace unit/component/browser tests accompany small changes to the existing App/background tests and browser setup, which now open Assets explicitly when required. Existing phase reports remain historical records.
 
@@ -53,7 +53,13 @@ Normal, expanded-assets, focused, and narrow-layout screenshots are generated un
 
 ## Rollout and limitations
 
-After all checks pass, commit and push this feature branch and deploy Hosting only. Retain the previous live version for rollback. Confirm the new live bundle and signed-out administrator gate without modifying production scene data. Actual release details will be appended after deployment.
+Deployed 2026-10-25 from source commit `9dc0273` on `feature/editor-workspace-layout`. Hosting version: `4c498c5ceaceebb6`. The Hosting predeploy hook rebuilt and verified the production output successfully; only Hosting was deployed.
+
+Read-only live checks confirmed the new `index-CggLngb2.js` bundle and `index-BollTAor.css`, workspace/focus/reset controls, workspace layout styles, and retained cloud-recovery code. Root and `/studio/worlds/sea_wonders` returned HTTP 200 and showed the sign-in gate with no editor canvas in an isolated signed-out Chrome session. No unhandled page errors occurred. An authenticated studio-admin browser session was not available, so signed-in production layout/cloud round-trip checks remain manual; the 36 real browser tests use isolated development mode.
+
+Previous Hosting version: `c9223d2504c6c71b`, release `1792954111337000`. Use Firebase Console → Hosting → release history → previous release → Roll back if needed. Before/after Hosting receipts and live verification results are saved in ignored `.firebase/workspace-hosting-before.json`, `workspace-hosting-after.json`, and `workspace-live-verification.json`.
+
+The feature branch is pushed; `main` remains unchanged. No production scene/asset content, Firebase rules, CORS policy, or administrator claims were modified by this task.
 
 Workspace controls are available in the authenticated editor. The login screen intentionally does not expose them. Desktop visibility preferences are retained independently of compact overlay state. Cameras/history remain per browser session; layout preferences persist locally. Browser-private modes may prevent preference persistence while editing continues in memory.
 
