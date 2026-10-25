@@ -1,5 +1,7 @@
 import { useState } from "react";
 import Dialog from "../project/Dialog";
+import WorkspaceSettings from "./WorkspaceSettings";
+import { setWorkspacePreferences, useWorkspace, validateWorkspacePreferences } from './workspace';
 import {
   EMPTY_SESSION,
   redo,
@@ -15,6 +17,7 @@ export default function Toolbar({ sceneKey }: { sceneKey: string }) {
   const { tool, settings, sessions, gesture } = useEditor(),
     s = sessions[sceneKey] ?? EMPTY_SESSION;
   const [open, setOpen] = useState(false);
+  const [workspaceDraft,setWorkspaceDraft]=useState(useWorkspace.getState().preferences);
   const [draft, setDraft] = useState(settings),
     [error, setError] = useState("");
   function toggle(field: "grid" | "snap" | "angleSnap" | "aspect") {
@@ -97,6 +100,7 @@ export default function Toolbar({ sceneKey }: { sceneKey: string }) {
         type="button"
         onClick={() => {
           setDraft(settings);
+          setWorkspaceDraft({...useWorkspace.getState().preferences});
           setError("");
           setOpen(true);
         }}
@@ -109,13 +113,16 @@ export default function Toolbar({ sceneKey }: { sceneKey: string }) {
             onSubmit={(event) => {
               event.preventDefault();
               try {
+                validateWorkspacePreferences(workspaceDraft);
                 setSettings(draft);
+                setWorkspacePreferences(workspaceDraft);
                 setOpen(false);
               } catch (e) {
                 setError(String(e));
               }
             }}
           >
+            <WorkspaceSettings sceneKey={sceneKey} preferences={workspaceDraft} onChange={setWorkspaceDraft}/>
             {(
               [
                 ["gridSize", "Grid size (scene units)", 1, 10000],

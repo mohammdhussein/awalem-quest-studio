@@ -112,6 +112,7 @@ async function start(page: Page) {
   await page.goto("/");
   await expect(page.locator(".canvas-host canvas")).toBeVisible();
   await page.getByRole("button", { name: "Grid", exact: true }).click();
+  await page.getByRole("button", { name: "Assets", exact: true }).click();
 }
 async function edit(page: Page, label: string, value: string) {
   const input = page.getByLabel(label, { exact: true });

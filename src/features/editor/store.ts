@@ -4,7 +4,13 @@ import { applySceneEdit, sceneLifecycle, useProject } from "../project/store";
 import { isTrashed } from "../project/model";
 import { validateEntityExtensions } from "../project/validation";
 import { applyCommand, type EntityDelta, type SceneCommand } from "./commands";
-import { type Bounds, type Camera, scales } from "./geometry";
+import {
+  type Bounds,
+  type Camera,
+  type CameraMode,
+  type ViewportSize,
+  scales,
+} from "./geometry";
 import {
   emptyBackground,
   entityLayerPatch,
@@ -18,6 +24,8 @@ export type ParallaxPreview = {
   elapsed: number;
   startedAt: number;
   cameraBefore: Camera | null;
+  cameraModeBefore: CameraMode;
+  viewportBefore: ViewportSize | null;
 };
 
 export type Tool = "move" | "rotate" | "scale";
@@ -79,6 +87,8 @@ export type SceneSession = {
   undo: SceneCommand[];
   redo: SceneCommand[];
   camera: Camera | null;
+  cameraMode?: CameraMode;
+  cameraViewport?: ViewportSize | null;
   bounds: Record<string, Bounds>;
   viewRequest: number;
   viewMode: "fit" | "reset";
@@ -88,6 +98,8 @@ export const EMPTY_SESSION: SceneSession = {
   undo: [],
   redo: [],
   camera: null,
+  cameraMode: "fit",
+  cameraViewport: null,
   bounds: {},
   viewRequest: 0,
   viewMode: "fit",
@@ -164,13 +176,19 @@ export function setTool(tool: Tool) {
   finishGesture();
   useEditor.setState({ tool });
 }
-export function setCamera(key: string, camera: Camera) {
-  updateSession(key, { camera });
+export function setCamera(
+  key: string,
+  camera: Camera,
+  cameraMode: CameraMode = "manual",
+  cameraViewport: ViewportSize | null = session(key).cameraViewport ?? null,
+) {
+  updateSession(key, { camera, cameraMode, cameraViewport });
 }
 export function requestView(key: string, mode: "fit" | "reset") {
   finishGesture();
   updateSession(key, {
     viewMode: mode,
+    cameraMode: mode === "fit" ? "fit" : "manual",
     viewRequest: session(key).viewRequest + 1,
   });
 }
@@ -640,7 +658,13 @@ export function setParallaxPreview(
   if (action === "stop") {
     updateSession(key, {
       preview: null,
-      ...(old ? { camera: old.cameraBefore } : {}),
+      ...(old
+        ? {
+            camera: old.cameraBefore,
+            cameraMode: old.cameraModeBefore,
+            cameraViewport: old.viewportBefore,
+          }
+        : {}),
     });
     return;
   }
@@ -653,6 +677,8 @@ export function setParallaxPreview(
         : 0,
       startedAt: now,
       cameraBefore: old ? old.cameraBefore : s.camera,
+      cameraModeBefore: old ? old.cameraModeBefore : (s.cameraMode ?? "fit"),
+      viewportBefore: old ? old.viewportBefore : (s.cameraViewport ?? null),
     },
   });
 }
