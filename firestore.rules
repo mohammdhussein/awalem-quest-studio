@@ -1,0 +1,14 @@
+rules_version = '2';
+service cloud.firestore {
+ match /databases/{database}/documents {
+  function studioAdmin() { return request.auth != null && request.auth.token.studioAdmin == true; }
+  match /studio_worlds/{worldId} {
+   allow read: if studioAdmin();
+   allow write: if studioAdmin();
+   match /volumes/{volumeId} { allow read, write: if studioAdmin();
+    match /{document=**} { allow read, write: if studioAdmin(); }
+   }
+  }
+  match /{document=**} { allow read, write: if false; }
+ }
+}

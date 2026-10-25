@@ -1,0 +1,18 @@
+{
+  "id": "volume_01",
+  "world_id": "sea_wonders",
+  "display_name": "Volume 1 (working title)",
+  "sort_order": 1,
+  "is_active": false,
+  "unlock_level": null,
+  "required_previous_progress": null,
+  "cards": [],
+  "rarity_targets": {
+    "common": 12,
+    "rare": 6,
+    "epic": 2
+  },
+  "scene_style": "2.5d",
+  "projection": "side_view_layered",
+  "scene_file": "scenes/main.scene.json"
+}

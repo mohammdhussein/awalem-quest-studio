@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "render_mode": "2.5d",
+  "world_id": "birds_of_the_sky",
+  "volume_id": "volume_03",
+  "dimensions": {
+    "width": 960,
+    "height": 540
+  },
+  "entities": []
+}

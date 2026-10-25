@@ -1,0 +1,18 @@
+{
+  "id": "volume_03",
+  "world_id": "birds_of_the_sky",
+  "display_name": "Volume 3 (working title)",
+  "sort_order": 3,
+  "is_active": false,
+  "unlock_level": null,
+  "required_previous_progress": 100,
+  "cards": [],
+  "rarity_targets": {
+    "common": 12,
+    "rare": 6,
+    "epic": 2
+  },
+  "scene_style": "2.5d",
+  "projection": "side_view_layered",
+  "scene_file": "scenes/main.scene.json"
+}

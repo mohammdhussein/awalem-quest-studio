@@ -1,0 +1,17 @@
+rules_version = '2';
+service firebase.storage {
+ match /b/{bucket}/o {
+  function studioAdmin() { return request.auth != null && request.auth.token.studioAdmin == true; }
+  match /studio-worlds/{worldId}/volumes/{volumeId}/sprites/{filename} {
+   allow read: if studioAdmin();
+   allow write: if studioAdmin()
+     && request.resource.size < 10 * 1024 * 1024
+     && request.resource.contentType.matches('image/(png|jpeg|webp)');
+  }
+  match /studio-worlds/{worldId}/volumes/{volumeId}/{allPaths=**} {
+   allow read: if studioAdmin();
+   allow write: if false; // Add explicit path and MIME rules for each new asset type
+  }
+  match /{allPaths=**} { allow read, write: if false; }
+ }
+}

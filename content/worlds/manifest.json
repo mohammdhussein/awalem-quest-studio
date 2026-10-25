@@ -1,0 +1,146 @@
+{
+  "schema_version": 1,
+  "source": "Awalem Spec 2026 (2026-10-19)",
+  "worlds": [
+    {
+      "id": "sea_wonders",
+      "name": "Sea Wonders",
+      "unlock_level": 1,
+      "volumes": [
+        {
+          "id": "volume_01",
+          "title": "Volume 1",
+          "sort_order": 1,
+          "is_active": false,
+          "card_limit": 20
+        },
+        {
+          "id": "volume_02",
+          "title": "Volume 2",
+          "sort_order": 2,
+          "is_active": false,
+          "card_limit": 20
+        },
+        {
+          "id": "volume_03",
+          "title": "Volume 3",
+          "sort_order": 3,
+          "is_active": false,
+          "card_limit": 20
+        }
+      ]
+    },
+    {
+      "id": "jungle_kingdom",
+      "name": "Jungle Kingdom",
+      "unlock_level": 3,
+      "volumes": [
+        {
+          "id": "volume_01",
+          "title": "Volume 1",
+          "sort_order": 1,
+          "is_active": false,
+          "card_limit": 20
+        },
+        {
+          "id": "volume_02",
+          "title": "Volume 2",
+          "sort_order": 2,
+          "is_active": false,
+          "card_limit": 20
+        },
+        {
+          "id": "volume_03",
+          "title": "Volume 3",
+          "sort_order": 3,
+          "is_active": false,
+          "card_limit": 20
+        }
+      ]
+    },
+    {
+      "id": "birds_of_the_sky",
+      "name": "Birds of the Sky",
+      "unlock_level": 5,
+      "volumes": [
+        {
+          "id": "volume_01",
+          "title": "Volume 1",
+          "sort_order": 1,
+          "is_active": false,
+          "card_limit": 20
+        },
+        {
+          "id": "volume_02",
+          "title": "Volume 2",
+          "sort_order": 2,
+          "is_active": false,
+          "card_limit": 20
+        },
+        {
+          "id": "volume_03",
+          "title": "Volume 3",
+          "sort_order": 3,
+          "is_active": false,
+          "card_limit": 20
+        }
+      ]
+    },
+    {
+      "id": "desert_kingdom",
+      "name": "Desert Kingdom",
+      "unlock_level": 7,
+      "volumes": [
+        {
+          "id": "volume_01",
+          "title": "Volume 1",
+          "sort_order": 1,
+          "is_active": false,
+          "card_limit": 20
+        },
+        {
+          "id": "volume_02",
+          "title": "Volume 2",
+          "sort_order": 2,
+          "is_active": false,
+          "card_limit": 20
+        },
+        {
+          "id": "volume_03",
+          "title": "Volume 3",
+          "sort_order": 3,
+          "is_active": false,
+          "card_limit": 20
+        }
+      ]
+    },
+    {
+      "id": "polar_explorers",
+      "name": "Polar Explorers",
+      "unlock_level": 9,
+      "volumes": [
+        {
+          "id": "volume_01",
+          "title": "Volume 1",
+          "sort_order": 1,
+          "is_active": false,
+          "card_limit": 20
+        },
+        {
+          "id": "volume_02",
+          "title": "Volume 2",
+          "sort_order": 2,
+          "is_active": false,
+          "card_limit": 20
+        },
+        {
+          "id": "volume_03",
+          "title": "Volume 3",
+          "sort_order": 3,
+          "is_active": false,
+          "card_limit": 20
+        }
+      ]
+    }
+  ]
+}

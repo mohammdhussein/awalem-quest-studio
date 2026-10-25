@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "render_mode": "2.5d",
+  "world_id": "sea_wonders",
+  "volume_id": "volume_01",
+  "dimensions": {
+    "width": 960,
+    "height": 540
+  },
+  "entities": []
+}
