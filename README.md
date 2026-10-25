@@ -1,5 +1,25 @@
 # Awalem Quest Studio — 2.5D Web Editor
 
+## Customizable workspace
+
+The scene gets the main workspace by default, with the Asset Browser collapsed. Use **Left panel**, **Inspector**, and **Assets** above the canvas to toggle panels, or **Scene focus** to temporarily maximize the scene and then restore the previous layout/camera. Upload sprite remains available in the collapsed asset header. Drag panel dividers or use their arrow keys to resize; configure defaults under **Settings → Workspace**.
+
+Fit adapts to available space. Manual zoom/pan keeps the current zoom and scene center during resizing; click **Fit** to resume automatic framing. Layout preferences stay local and do not change the 960 × 540 scene or its objects. See [WORKSPACE_LAYOUT.md](WORKSPACE_LAYOUT.md) for verification and delivery details.
+
+## Phase 3 backgrounds
+
+Use the **Backgrounds** panel to Set background, add background/foreground layers, or replace a selected layer image. The picker offers **Upload background** and assets from all worlds; shared images retain independent transforms in each scene. Select a layer to edit Fit/Fill/Stretch/Tile/Custom mode, offsets, scale, tint, opacity, depth, locks, and parallax. Custom layers support Move/Scale handles. Play/Pause/Stop previews never change authored scene data. A mission's **Edit scene background** opens its starting scene; each scene has separate settings.
+
+Existing objects are preserved when replacing backgrounds. Local drafts, undo/redo, and explicit **Save to Firebase** also cover image layers. See [PHASE_3.md](PHASE_3.md) for implementation, verification, CORS operations, rollout, and manual checks. Storage CORS can be inspected with `node scripts/storage-cors.mjs --check`; administrative Apply/Restore operations are documented there.
+
+## Phase 2 scene editing
+
+Use **Set up / open Mission 1** to organize the existing Sea Wonders Main Scene locally. Select objects in the canvas or Scene Hierarchy, then use **W / E / R** for move, rotate, and scale. The Inspector supports independent scales, dimensions, opacity, visibility/locking, and image origins. Camera zoom/pan, grid/angle snapping, aspect locking, and depth controls are available in the scene toolbar.
+
+**Ctrl+Z**, **Ctrl+Y / Ctrl+Shift+Z**, **Ctrl+D**, **Delete**, and **F2** operate in scene context; text fields and the project tree keep their own editing behavior. Each completed drag or valid Inspector focus session is one undo step. Histories are independent per scene during the current browser session and reset on refresh. Authored changes still use the existing local drafts and explicit Firebase save/load.
+
+Run `npm run test:browser` for real headless Chrome tests at device pixel ratios 1 and 2, in addition to `npm test`, `npm run test:emulator`, and `npm run build`. See [PHASE_2.md](PHASE_2.md) for architecture, changed files, verification, limitations, and the manual checklist. Existing production administrator access and Hosting checks remain in force.
+
 ## Phase 1 project management
 
 The existing editor now has a persistent project explorer for worlds, volumes, missions, nested folders, scenes, and image asset metadata. Use **+ New**, item action menus, or F2 / Delete / Ctrl+D in the tree. Move content by dragging it onto a container or using **Move**. Moves are restricted to the original volume.
@@ -8,7 +28,11 @@ Local drafts save automatically to IndexedDB. Select scenes in the explorer to s
 
 **Save to Firebase** explicitly saves pending project records. **Load cloud project** confirms replacement of local changes and stores a recovery snapshot first. **Backup project** exports a portable JSON snapshot, **Export scene** exports the open scene, and **Recovery** exports or restores earlier browser snapshots. New scenes are blank; the original Main Scene examples remain available.
 
-Staff email/password authentication is preserved. Cloud actions additionally require a verified `studioAdmin: true` token claim. Configuration or sign-in alone does not establish live Firebase connectivity. File uploads and Firestore metadata saves have separate success messages.
+Staff email/password authentication is preserved. Production builds require authentication and a verified `studioAdmin: true` token claim before opening the editor. Local development retains offline editing, and cloud actions also require the administrator claim. Configuration or sign-in alone does not establish live Firebase connectivity. File uploads and Firestore metadata saves have separate success messages.
+
+## Firebase Hosting
+
+Classic Hosting serves `dist` with an SPA fallback. Run `npm run deploy:hosting` only when ready to publish; its predeploy hook builds and checks the production output first, and only Hosting is deployed. On Windows PowerShell use `npm.cmd run deploy:hosting`. See [FIREBASE_HOSTING.md](FIREBASE_HOSTING.md) for environment variables, administrator access, verification, costs, and the current CLI authentication blocker. Deployment has not been performed.
 
 ```bash
 npm install
@@ -43,7 +67,7 @@ cp .env.example .env   # on Windows, copy the file manually
 npm run dev
 ```
 
-Open the localhost URL printed by Vite. The editor works locally **without** a Firebase account.
+Open the localhost URL printed by Vite. In `npm run dev`, the editor works locally **without** a Firebase account. Production builds, including `npm run preview`, require an authenticated studio administrator.
 
 ## Firebase setup (web configuration added; live services still need provisioning)
 

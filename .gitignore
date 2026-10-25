@@ -1,6 +1,7 @@
 node_modules/
 dist/
 .env
+.env.*
 .env.local
 .env.*.local
 !.env.example
@@ -9,3 +10,5 @@ dist/
 *-debug.log
 firebase-debug.*.log
 .firebase/
+playwright-report/
+test-results/

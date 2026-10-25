@@ -51,11 +51,13 @@ After the claim is added, sign out and in again. The app's Firestore and Storage
 
 Cloud Storage objects live at `studio-worlds/<worldId>/volumes/<volumeId>/sprites/<filename>`; these are object path prefixes, not precreated folders.
 
-## Deployment later
+## Firebase Hosting deployment
 
 ```bash
 npm run build
-npx firebase-tools deploy --only hosting
+npm run deploy:hosting
 ```
 
-Ensure access to the *entire* internal studio site is gated appropriately before publicly deploying. Cloud security rules protect data, but Firebase Hosting by itself does not make the app's HTML/JS private.
+The deployment script targets only Hosting in `awalem-quest-studio`; its predeploy hook rebuilds and checks production configuration and output. On Windows PowerShell use `npm.cmd` / `npx.cmd`. No deployment was performed. See [FIREBASE_HOSTING.md](FIREBASE_HOSTING.md) for the full process, current blockers, and costs.
+
+Production now gates editor access on Firebase Authentication and the verified boolean `studioAdmin: true` claim. Cloud security rules protect data, while Firebase Hosting serves public HTML/JS. Local development retains the existing offline workflow.
