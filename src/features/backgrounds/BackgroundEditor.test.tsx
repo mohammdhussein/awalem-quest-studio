@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { useWorkspace, workspaceDefaults } from "../editor/workspace";
 import "fake-indexeddb/auto";
 import {
   afterEach,
@@ -13,6 +14,7 @@ import {
   act,
   cleanup,
   render,
+  fireEvent,
   screen,
   waitFor,
   within,
@@ -60,6 +62,18 @@ beforeAll(async () => {
   await initializeProject();
 });
 beforeEach(() => {
+  Object.defineProperty(window, "innerWidth", {
+    configurable: true,
+    writable: true,
+    value: 1440,
+  });
+  useWorkspace.setState({
+    preferences: { ...workspaceDefaults },
+    compact: false,
+    drawer: null,
+    focus: false,
+    snapshot: null,
+  });
   resetEditor();
   vi.mocked(uploadSprite).mockReset().mockResolvedValue({
     url: "https://example.test/upload.png",
@@ -95,6 +109,59 @@ afterEach(async () => {
   vi.unstubAllGlobals();
 });
 describe("visual background controls with mocked upload SDK and viewport", () => {
+  it("keeps sprite uploads and progress available while the Asset Browser is collapsed", async () => {
+    let complete!: (value: { url: string; path: string }) => void;
+    vi.mocked(uploadSprite).mockImplementation(
+      (_file, _world, _volume, progress) => {
+        progress?.(30);
+        return new Promise((resolve) => {
+          complete = resolve;
+        });
+      },
+    );
+    const user = userEvent.setup();
+    render(<App />);
+    const before = sceneRecord(key).scene.entities.length;
+    const input = document.querySelector<HTMLInputElement>(
+      "#workspace-assets input[type=file]",
+    )!;
+    fireEvent.change(input, {
+      target: {
+        files: [new File(["fixture"], "new-sprite.png", { type: "image/png" })],
+      },
+    });
+    await waitFor(() =>
+      expect(
+        screen.getByRole("progressbar", { name: "Image upload progress" }),
+      ).toBeTruthy(),
+    );
+    expect(
+      screen
+        .getByRole("button", { name: "Assets" })
+        .getAttribute("aria-expanded"),
+    ).toBe("false");
+    expect(screen.getByText("30%")).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Assets" }));
+    await user.click(screen.getByRole("button", { name: "Assets" }));
+    expect(document.querySelector("#workspace-assets input[type=file]")).toBe(
+      input,
+    );
+    await act(async () =>
+      complete({
+        url: "https://example.test/new-sprite.png",
+        path: "sprites/new-sprite.png",
+      }),
+    );
+    await waitFor(() =>
+      expect(sceneRecord(key).scene.entities).toHaveLength(before + 1),
+    );
+    await waitFor(() => expect(screen.queryByRole("progressbar")).toBeNull());
+    expect(
+      screen
+        .getByRole("button", { name: "Assets" })
+        .getAttribute("aria-expanded"),
+    ).toBe("false");
+  });
   it("selects an image across worlds and preserves all objects", async () => {
     const user = userEvent.setup(),
       before = structuredClone(sceneRecord(key).scene.entities);

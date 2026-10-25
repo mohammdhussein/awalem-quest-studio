@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 import type { SceneEntity, Shape } from "./data/scene";
 import { uploadSprite } from "./lib/cloud";
 import { requireStudioAdmin, useStudioAuth } from "./lib/studioAuth";
@@ -11,7 +11,19 @@ import { localDrafts } from "./lib/repositories/local";
 import SceneViewport from "./components/SceneViewport";
 import EntityInspector from "./components/EntityInspector";
 import FirebasePanel from "./components/FirebasePanel";
-import PanelDivider, { readPanelSize } from "./components/PanelDivider";
+import PanelDivider from "./components/PanelDivider";
+import WorkspaceControls from "./features/editor/WorkspaceControls";
+import {
+  closeDrawer,
+  drawerLayout,
+  sidebarLayout,
+  prepareLayout,
+  setCompact,
+  setWorkspacePreferences,
+  togglePanel,
+  useWorkspace,
+  visiblePanel,
+} from "./features/editor/workspace";
 import ProjectExplorer from "./features/project/ProjectExplorer";
 import ItemInspector from "./features/project/ItemInspector";
 import Dialog from "./features/project/Dialog";
@@ -97,10 +109,43 @@ function StudioEditor({ auth }: { auth: ReturnType<typeof useStudioAuth> }) {
   const [confirmLoad, setConfirmLoad] = useState(false);
   const [backgroundPicker, setBackgroundPicker] =
     useState<BackgroundPicker | null>(null);
-  const [leftWidth, setLeftWidth] = useState(() => readPanelSize("left", 280));
-  const [rightWidth, setRightWidth] = useState(() =>
-    readPanelSize("right", 270),
+  const workspace = useWorkspace(),
+    { leftWidth, rightWidth } = workspace.preferences;
+  const workspaceElement = useRef<HTMLDivElement>(null),
+    centerElement = useRef<HTMLElement>(null);
+  const [metrics, setMetrics] = useState({
+    width: window.innerWidth,
+    height: Math.max(0, window.innerHeight - 56),
+    chrome: 76,
+    overlayTop: 78,
+  });
+  const leftOpen = visiblePanel("left"),
+    rightOpen = visiblePanel("right");
+  const sidebar = sidebarLayout(
+    metrics.width,
+    leftOpen,
+    rightOpen,
+    leftWidth,
+    rightWidth,
   );
+  const assetDrawer = drawerLayout(
+    metrics.height,
+    metrics.chrome,
+    workspace.preferences.assetsHeight,
+    workspace.preferences.assetsOpen && !workspace.focus,
+  );
+  function restoreToggle(side: "left" | "right") {
+    requestAnimationFrame(() =>
+      document
+        .querySelector<HTMLButtonElement>(`[data-panel-toggle="${side}"]`)
+        ?.focus(),
+    );
+  }
+  function collapseSidebar(side: "left" | "right") {
+    if (workspace.compact) closeDrawer();
+    else togglePanel(side);
+    restoreToggle(side);
+  }
   const fileInput = useRef<HTMLInputElement>(null);
   const active = project?.active_scene_key
     ? project.records[project.active_scene_key]
@@ -144,6 +189,80 @@ function StudioEditor({ auth }: { auth: ReturnType<typeof useStudioAuth> }) {
   useEffect(() => {
     void initializeProject();
   }, []);
+  useEffect(() => {
+    const mq = window.matchMedia?.("(max-width: 1099px)");
+    const update = () => setCompact(mq ? mq.matches : window.innerWidth < 1100);
+    update();
+    mq?.addEventListener("change", update);
+    if (!mq) window.addEventListener("resize", update);
+    return () => {
+      mq?.removeEventListener("change", update);
+      window.removeEventListener("resize", update);
+    };
+  }, []);
+  useEffect(() => {
+    const measure = () => {
+      const width = workspaceElement.current?.clientWidth || window.innerWidth;
+      const height =
+        workspaceElement.current?.clientHeight ||
+        Math.max(0, window.innerHeight - 56);
+      const chrome =
+        [
+          ...(centerElement.current?.querySelectorAll<HTMLElement>(
+            ":scope > .scene-toolbar,:scope > .editor-toolbar,:scope > .status-line",
+          ) ?? []),
+        ].reduce((sum, element) => sum + element.offsetHeight, 0) || 76;
+      const overlayTop =
+        [
+          ...(centerElement.current?.querySelectorAll<HTMLElement>(
+            ":scope > .scene-toolbar,:scope > .editor-toolbar",
+          ) ?? []),
+        ].reduce((sum, element) => sum + element.offsetHeight, 0) || 78;
+      setMetrics((old) =>
+        old.height === height &&
+        old.chrome === chrome &&
+        old.width === width &&
+        old.overlayTop === overlayTop
+          ? old
+          : { height, chrome, width, overlayTop },
+      );
+    };
+    measure();
+    const observer =
+      typeof ResizeObserver === "undefined"
+        ? null
+        : new ResizeObserver(measure);
+    if (workspaceElement.current) observer?.observe(workspaceElement.current);
+    for (const node of centerElement.current?.querySelectorAll(
+      ":scope > .scene-toolbar,:scope > .editor-toolbar,:scope > .status-line",
+    ) ?? [])
+      observer?.observe(node);
+    window.addEventListener("resize", measure);
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener("resize", measure);
+    };
+  }, [ready, sceneRecord?.key]);
+  useEffect(() => {
+    if (!workspace.compact || !workspace.drawer) return;
+    const escape = (event: KeyboardEvent) => {
+      if (
+        event.key === "Escape" &&
+        !event.defaultPrevented &&
+        !useEditor.getState().gesture &&
+        !(event.target as Element)?.closest(
+          "input,textarea,select,dialog,[contenteditable=true]",
+        )
+      ) {
+        event.preventDefault();
+        const side = useWorkspace.getState().drawer;
+        closeDrawer();
+        if (side) restoreToggle(side);
+      }
+    };
+    window.addEventListener("keydown", escape);
+    return () => window.removeEventListener("keydown", escape);
+  }, [workspace.compact, workspace.drawer]);
   useEffect(() => () => cancelGesture(), []);
   useEffect(() => {
     const handle = (event: KeyboardEvent) =>
@@ -242,11 +361,14 @@ function StudioEditor({ auth }: { auth: ReturnType<typeof useStudioAuth> }) {
       acknowledgeSaves(current, result.saved);
       persistProjectState(current);
       await flushDraft();
+      const recovered = result.recovered?.length
+        ? ` Recovered ${result.recovered.length} unchanged starter scene baseline(s); local edits were preserved.`
+        : "";
       setStatus(
         result.failures.length
-          ? `Saved ${result.saved.length} records. Unsaved scopes: ${result.failures.map((f) => `${f.scope}: ${f.message}`).join(" | ")}`
+          ? `Saved ${result.saved.length} records.${recovered} Unsaved scopes: ${result.failures.map((f) => `${f.scope}: ${f.message}`).join(" | ")}`
           : result.saved.length
-            ? `Firebase confirmed ${result.saved.length} records. Acknowledged drafts are retained locally.`
+            ? `Firebase confirmed ${result.saved.length} records. Acknowledged drafts are retained locally.${recovered}`
             : "No pending changes to save.",
       );
     });
@@ -487,12 +609,48 @@ function StudioEditor({ auth }: { auth: ReturnType<typeof useStudioAuth> }) {
         </div>
       )}
       <div
-        className="workspace"
-        style={{
-          gridTemplateColumns: `${leftWidth}px 5px minmax(260px,1fr) 5px ${rightWidth}px`,
-        }}
+        className={`workspace ${workspace.compact ? "compact-workspace" : ""} ${workspace.focus ? "scene-focused" : ""}`}
+        ref={workspaceElement}
+        style={
+          {
+            "--workspace-columns": workspace.compact
+              ? "minmax(0,1fr)"
+              : `${sidebar.left}px ${leftOpen ? 5 : 0}px minmax(0,1fr) ${rightOpen ? 5 : 0}px ${sidebar.right}px`,
+            "--workspace-overlay-top": `${metrics.overlayTop}px`,
+          } as CSSProperties
+        }
       >
-        <aside className="left-panel">
+        {workspace.compact && workspace.drawer && !workspace.focus && (
+          <button
+            type="button"
+            className="workspace-backdrop"
+            aria-label="Close sidebar overlay"
+            onClick={() => collapseSidebar(workspace.drawer!)}
+          />
+        )}
+        <aside
+          className="left-panel workspace-panel"
+          id="workspace-left"
+          hidden={!leftOpen}
+          aria-label="Project and layers"
+          style={
+            workspace.compact
+              ? {
+                  width: Math.min(
+                    leftWidth,
+                    Math.max(210, window.innerWidth - 48),
+                  ),
+                }
+              : undefined
+          }
+        >
+          <button
+            type="button"
+            className="panel-close"
+            onClick={() => collapseSidebar("left")}
+          >
+            Close left panel
+          </button>
           <ProjectExplorer />
           <MissionSetup />
           {scene && sceneRecord && (
@@ -508,9 +666,20 @@ function StudioEditor({ auth }: { auth: ReturnType<typeof useStudioAuth> }) {
             />
           )}
         </aside>
-        <PanelDivider side="left" width={leftWidth} onResize={setLeftWidth} />
+        {!workspace.compact && (
+          <div className="divider-slot left-divider" hidden={!leftOpen}>
+            <PanelDivider
+              side="left"
+              value={sidebar.left}
+              max={sidebar.leftMax}
+              onBeforeResize={prepareLayout}
+              onResize={(leftWidth) => setWorkspacePreferences({ leftWidth })}
+            />
+          </div>
+        )}
         <main
           className="center-panel"
+          ref={centerElement}
           data-scene-editor
           onKeyDown={(event) =>
             editorShortcuts(event, sceneRecord?.key ?? null)
@@ -522,7 +691,11 @@ function StudioEditor({ auth }: { auth: ReturnType<typeof useStudioAuth> }) {
               {sceneVolume?.name ?? "Choose a volume"} <span>/</span>{" "}
               {sceneRecord?.name ?? "No scene open"}
             </div>
-            <div className="mode-label">● LAYERED 2.5D</div>
+            <WorkspaceControls
+              sceneKey={sceneRecord?.key ?? null}
+              assetsExpanded={assetDrawer.expanded && !workspace.focus}
+              assetsAvailable={assetDrawer.canExpand}
+            />
           </div>
           {sceneRecord && <Toolbar sceneKey={sceneRecord.key} />}
           <div className="viewport-wrap">
@@ -548,28 +721,37 @@ function StudioEditor({ auth }: { auth: ReturnType<typeof useStudioAuth> }) {
               Drag objects to reposition · Drop catalog assets here
             </span>
           </div>
-          <section className="assets">
+          {assetDrawer.expanded && !workspace.focus && (
+            <PanelDivider
+              side="assets"
+              value={assetDrawer.height}
+              max={assetDrawer.max}
+              onBeforeResize={prepareLayout}
+              onResize={(assetsHeight) =>
+                setWorkspacePreferences({ assetsHeight })
+              }
+            />
+          )}
+          <section
+            className="assets workspace-panel"
+            id="workspace-assets"
+            hidden={workspace.focus}
+            aria-label="Asset Browser"
+            style={{ height: assetDrawer.height }}
+          >
             <div className="asset-title">
-              <strong>Asset browser {volume ? `· ${volume.name}` : ""}</strong>
-              <small>Original images are retained</small>
-            </div>
-            <div className="asset-controls">
-              <select
-                aria-label="Choose placeholder type"
-                value={shape}
-                onChange={(e) => setShape(e.target.value as Shape)}
-              >
-                {availableShapes.map((s) => (
-                  <option key={s}>{s}</option>
-                ))}
-              </select>
               <button
-                className="soft-btn"
                 type="button"
-                disabled={!scene || preview}
-                onClick={() => addEntity(shape)}
+                className="asset-drawer-toggle"
+                aria-controls="asset-drawer-content"
+                aria-expanded={assetDrawer.expanded}
+                disabled={!assetDrawer.canExpand}
+                onClick={() => togglePanel("assets")}
               >
-                + Add sample
+                <span aria-hidden="true">
+                  {assetDrawer.expanded ? "▾" : "▸"}
+                </span>{" "}
+                Asset browser {volume ? `· ${volume.name}` : ""}
               </button>
               <button
                 className="soft-btn"
@@ -590,41 +772,101 @@ function StudioEditor({ auth }: { auth: ReturnType<typeof useStudioAuth> }) {
                 }}
               />
               {progress !== null && (
-                <progress
-                  aria-label="Image upload progress"
-                  max={100}
-                  value={progress}
-                />
+                <>
+                  <progress
+                    aria-label="Image upload progress"
+                    max={100}
+                    value={progress}
+                  />
+                  <span className="upload-percent" role="status">
+                    {progress}%
+                  </span>
+                </>
               )}
             </div>
-            {context?.volume_id ? (
-              <AssetBrowser
-                worldId={context.world_id}
-                volumeId={context.volume_id}
-                onAdd={useAsset}
-                disabled={preview || busy}
-                onBackground={
-                  sceneRecord
-                    ? (asset) =>
-                        assignBackgroundAsset(sceneRecord.key, asset, "base")
-                    : undefined
-                }
-              />
-            ) : (
-              <p className="hint">Choose a volume to browse reusable images.</p>
-            )}
+            <div
+              id="asset-drawer-content"
+              className="assets-body"
+              hidden={!assetDrawer.expanded}
+            >
+              <div className="asset-controls">
+                <select
+                  aria-label="Choose placeholder type"
+                  value={shape}
+                  onChange={(e) => setShape(e.target.value as Shape)}
+                >
+                  {availableShapes.map((s) => (
+                    <option key={s}>{s}</option>
+                  ))}
+                </select>
+                <button
+                  className="soft-btn"
+                  type="button"
+                  disabled={!scene || preview}
+                  onClick={() => addEntity(shape)}
+                >
+                  + Add sample
+                </button>
+              </div>
+              {context?.volume_id ? (
+                <AssetBrowser
+                  worldId={context.world_id}
+                  volumeId={context.volume_id}
+                  onAdd={useAsset}
+                  disabled={preview || busy}
+                  onBackground={
+                    sceneRecord
+                      ? (asset) =>
+                          assignBackgroundAsset(sceneRecord.key, asset, "base")
+                      : undefined
+                  }
+                />
+              ) : (
+                <p className="hint">
+                  Choose a volume to browse reusable images.
+                </p>
+              )}
+            </div>
           </section>
           <div className="status-line" role="status">
             {busy && <span className="working-indicator">Working… </span>}
             {editor.message || notice || status}
           </div>
         </main>
-        <PanelDivider
-          side="right"
-          width={rightWidth}
-          onResize={setRightWidth}
-        />
-        <aside className="right-panel">
+        {!workspace.compact && (
+          <div className="divider-slot right-divider" hidden={!rightOpen}>
+            <PanelDivider
+              side="right"
+              value={sidebar.right}
+              max={sidebar.rightMax}
+              onBeforeResize={prepareLayout}
+              onResize={(rightWidth) => setWorkspacePreferences({ rightWidth })}
+            />
+          </div>
+        )}
+        <aside
+          className="right-panel workspace-panel"
+          id="workspace-right"
+          hidden={!rightOpen}
+          aria-label="Inspector"
+          style={
+            workspace.compact
+              ? {
+                  width: Math.min(
+                    rightWidth,
+                    Math.max(210, window.innerWidth - 48),
+                  ),
+                }
+              : undefined
+          }
+        >
+          <button
+            type="button"
+            className="panel-close"
+            onClick={() => collapseSidebar("right")}
+          >
+            Close Inspector
+          </button>
           <div className="panel-heading">
             <span>INSPECTOR</span>
             <span>2.5D</span>

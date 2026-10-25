@@ -11,6 +11,7 @@ import type { SceneDocument, SceneEntity } from "../../data/scene";
 import { makeGraphic, paintBackground } from "./art";
 import { acquireTexture, releaseTexture } from "./textures";
 import { BackgroundRenderer } from "../backgrounds/renderer";
+import { resizeCamera, type CameraMode } from "./geometry";
 import { layerEntity } from "../backgrounds/model";
 import { entityImageUrl, resolveAsset } from "../assets/catalog";
 import { useProject } from "../project/store";
@@ -154,6 +155,7 @@ export class SceneController {
       window.addEventListener("keyup", this.keyUp);
       window.addEventListener("blur", this.cancel);
       window.addEventListener("resize", this.resize);
+      window.addEventListener("awalem-workspace-change", this.cancel);
       this.mounted = true;
       this.observer = new ResizeObserver(this.resize);
       this.observer.observe(this.host);
@@ -182,6 +184,7 @@ export class SceneController {
   }
   private resize = () => {
     if (!this.mounted || this.disposed) return;
+    if (this.drag) this.cancel();
     this.app.renderer.resize(
       this.host.clientWidth,
       this.host.clientHeight,
@@ -193,13 +196,25 @@ export class SceneController {
       this.host.clientWidth,
       this.host.clientHeight,
     );
-    if (this.key && !session(this.key).camera)
+    if (this.key) {
+      const s = session(this.key),
+        mode = s.cameraMode ?? "fit";
       this.publishCamera(
-        fitCamera(this.host.clientWidth, this.host.clientHeight),
+        resizeCamera(
+          s.camera,
+          s.cameraViewport ?? null,
+          { width: this.host.clientWidth, height: this.host.clientHeight },
+          mode,
+        ),
+        mode,
       );
+    }
     this.draw();
   };
-  private publishCamera(camera: Camera) {
+  private publishCamera(
+    camera: Camera,
+    mode: CameraMode = session(this.key).cameraMode ?? "fit",
+  ) {
     this.camera = camera;
     if (this.key) {
       const old = session(this.key).camera;
@@ -207,9 +222,15 @@ export class SceneController {
         !old ||
         old.x !== camera.x ||
         old.y !== camera.y ||
-        old.zoom !== camera.zoom
+        old.zoom !== camera.zoom ||
+        session(this.key).cameraMode !== mode ||
+        session(this.key).cameraViewport?.width !== this.host.clientWidth ||
+        session(this.key).cameraViewport?.height !== this.host.clientHeight
       )
-        setCamera(this.key, camera);
+        setCamera(this.key, camera, mode, {
+          width: this.host.clientWidth,
+          height: this.host.clientHeight,
+        });
     }
     this.draw();
   }
@@ -245,10 +266,14 @@ export class SceneController {
     if (!this.mounted || this.disposed || !this.scene) return;
     const s = session(this.key);
     if (this.lastViewRequest === -1) {
-      this.camera =
-        s.camera ?? fitCamera(this.host.clientWidth, this.host.clientHeight);
+      this.camera = resizeCamera(
+        s.camera,
+        s.cameraViewport ?? null,
+        { width: this.host.clientWidth, height: this.host.clientHeight },
+        s.cameraMode ?? "fit",
+      );
       this.lastViewRequest = s.viewRequest;
-      this.publishCamera(this.camera);
+      this.publishCamera(this.camera, s.cameraMode ?? "fit");
     } else if (s.viewRequest !== this.lastViewRequest) {
       this.lastViewRequest = s.viewRequest;
       this.publishCamera(
@@ -257,8 +282,18 @@ export class SceneController {
           this.host.clientHeight,
           s.viewMode === "reset" ? 1 : undefined,
         ),
+        s.viewMode === "fit" ? "fit" : "manual",
       );
-    } else if (s.camera) this.camera = s.camera;
+    } else if (s.camera)
+      this.publishCamera(
+        resizeCamera(
+          s.camera,
+          s.cameraViewport ?? null,
+          { width: this.host.clientWidth, height: this.host.clientHeight },
+          s.cameraMode ?? "fit",
+        ),
+        s.cameraMode ?? "fit",
+      );
     const entities = this.entities(),
       ids = new Set(entities.map((e) => e.id));
     for (const [id, entry] of this.nodes)
@@ -596,11 +631,14 @@ export class SceneController {
     if (!point || !drag) return;
     if (drag.kind === "pan") {
       const p = this.clientPoint(point.x, point.y);
-      this.publishCamera({
-        ...drag.beforeCamera,
-        x: drag.beforeCamera.x + p.x - drag.start.x,
-        y: drag.beforeCamera.y + p.y - drag.start.y,
-      });
+      this.publishCamera(
+        {
+          ...drag.beforeCamera,
+          x: drag.beforeCamera.x + p.x - drag.start.x,
+          y: drag.beforeCamera.y + p.y - drag.start.y,
+        },
+        "manual",
+      );
       return;
     }
     const g = useEditor.getState().gesture;
@@ -676,6 +714,7 @@ export class SceneController {
         this.camera.zoom *
           Math.exp(-event.deltaY * (event.deltaMode === 1 ? 0.025 : 0.0015)),
       ),
+      "manual",
     );
   };
   private keyDown = (e: KeyboardEvent) => {
@@ -718,6 +757,7 @@ export class SceneController {
       window.removeEventListener("keyup", this.keyUp);
       window.removeEventListener("blur", this.cancel);
       window.removeEventListener("resize", this.resize);
+      window.removeEventListener("awalem-workspace-change", this.cancel);
       this.app.destroy(true, { children: true });
     }
     for (const url of this.urls) releaseTexture(url);

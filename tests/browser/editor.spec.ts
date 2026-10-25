@@ -72,6 +72,7 @@ async function start(page: Page, count = 1) {
   );
   await page.goto("/");
   await expect(page.locator(".canvas-host canvas")).toBeVisible();
+  await page.getByRole("button", { name: "Assets", exact: true }).click();
   await page
     .locator(".hierarchy-select")
     .filter({ hasText: count === 1 ? "Test sprite" : `Actor ${count - 1}` })
@@ -429,11 +430,26 @@ test("asset drops use the same zoom and pan coordinate conversion as transforms"
   await page.mouse.move(b!.x + 160, b!.y + 130, { steps: 8 });
   await page.mouse.up();
   await page.keyboard.up("Space");
+  // A manual camera must retain its center when the Inspector changes canvas width.
+  await page.getByRole("button", { name: "Inspector", exact: true }).click();
+  await page.evaluate(
+    () =>
+      new Promise<void>((resolve) =>
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+      ),
+  );
+  const resizedCanvas = (await page
+    .locator(".canvas-host canvas")
+    .boundingBox())!;
   await page
     .locator(".asset-card")
     .dragTo(page.locator(".canvas-host canvas"), {
-      targetPosition: { x: b!.width / 2, y: b!.height / 2 },
+      targetPosition: {
+        x: resizedCanvas.width / 2,
+        y: resizedCanvas.height / 2,
+      },
     });
+  await page.getByRole("button", { name: "Inspector", exact: true }).click();
   await expect(page.locator(".hierarchy-select")).toHaveCount(2);
   expect(Math.abs((await numeric(page, "X")) - (480 - 80 / z))).toBeLessThan(1);
   expect(Math.abs((await numeric(page, "Y")) - (270 - 50 / z))).toBeLessThan(1);

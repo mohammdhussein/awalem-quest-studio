@@ -3,6 +3,30 @@ import type { SceneEntity } from "../../data/scene";
 export type Point = { x: number; y: number };
 export type Bounds = Point & { width: number; height: number; ready?: boolean };
 export type Camera = Point & { zoom: number };
+export type CameraMode = "fit" | "manual";
+export type ViewportSize = { width: number; height: number };
+export function resizeCamera(
+  camera: Camera | null,
+  previous: ViewportSize | null,
+  next: ViewportSize,
+  mode: CameraMode,
+): Camera {
+  if (mode === "fit" || !camera) return fitCamera(next.width, next.height);
+  if (
+    !previous ||
+    (previous.width === next.width && previous.height === next.height)
+  )
+    return camera;
+  const center = screenToWorld(
+    { x: previous.width / 2, y: previous.height / 2 },
+    camera,
+  );
+  return {
+    zoom: camera.zoom,
+    x: next.width / 2 - center.x * camera.zoom,
+    y: next.height / 2 - center.y * camera.zoom,
+  };
+}
 export const scales = (e: SceneEntity) => ({
   x: e.scaleX ?? e.scale,
   y: e.scaleY ?? e.scale,

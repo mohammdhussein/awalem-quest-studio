@@ -1,0 +1,293 @@
+/* Workspace geometry follows presentation preferences, independently of authored scenes. */
+.app {
+  height: 100dvh;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+}
+.app .topbar {
+  height: auto;
+  min-height: 56px;
+  padding: 8px 16px;
+  gap: 10px;
+}
+.workspace {
+  grid-template-columns: var(--workspace-columns, minmax(0, 1fr)) !important;
+  position: relative;
+  grid-template-rows: minmax(0, 1fr);
+  min-height: 0;
+}
+.workspace > .left-panel {
+  grid-column: 1;
+  grid-row: 1;
+  overflow-y: auto;
+}
+.workspace > .left-divider {
+  grid-column: 2;
+  grid-row: 1;
+}
+.workspace > .center-panel {
+  grid-column: 3;
+  grid-row: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+.workspace > .right-divider {
+  grid-column: 4;
+  grid-row: 1;
+}
+.workspace > .right-panel {
+  grid-column: 5;
+  grid-row: 1;
+}
+.workspace .left-panel:not([hidden]) {
+  display: flex;
+}
+.workspace .right-panel:not([hidden]) {
+  display: block;
+}
+.workspace .workspace-panel[hidden],
+.workspace .divider-slot[hidden],
+.workspace .assets-body[hidden] {
+  display: none !important;
+}
+.divider-slot {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+}
+.divider-slot > .panel-divider {
+  width: 100%;
+  height: 100%;
+}
+.panel-divider.assets {
+  height: 6px;
+  flex: 0 0 6px;
+  cursor: row-resize;
+  touch-action: none;
+  position: relative;
+  z-index: 1;
+}
+.panel-divider.assets::after {
+  content: "";
+  display: block;
+  width: 38px;
+  height: 2px;
+  background: #7293a9;
+  position: absolute;
+  top: 2px;
+  left: calc(50% - 19px);
+  border-radius: 2px;
+}
+.panel-close {
+  align-self: flex-end;
+  display: block;
+  margin: 0 0 7px auto;
+  border: 1px solid #35516a;
+  background: #182e43;
+  color: #aac6d8;
+  border-radius: 4px;
+  font-size: 10px;
+  padding: 4px 7px;
+}
+.scene-toolbar {
+  height: 36px;
+  min-height: 36px;
+  padding: 0 10px;
+  gap: 10px;
+  overflow: hidden;
+}
+.breadcrumbs {
+  flex: 1;
+  min-width: 0;
+  font-size: 11px;
+}
+.breadcrumbs span {
+  padding: 0 3px;
+}
+.workspace-controls {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+.workspace-controls button {
+  border: 1px solid #38536b;
+  background: #1a3047;
+  color: #bcd4e5;
+  border-radius: 5px;
+  padding: 5px 7px;
+  font-size: 10px;
+  white-space: nowrap;
+}
+.workspace-controls button[aria-expanded="true"],
+.workspace-controls button[aria-pressed="true"] {
+  color: #ffe1a2;
+  border-color: #ba9657;
+  background: #38382f;
+}
+.editor-toolbar {
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  min-height: 42px;
+  scrollbar-width: thin;
+  overscroll-behavior-x: contain;
+}
+.editor-toolbar > button {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+.editor-toolbar > .toolbar-separator {
+  flex-shrink: 0;
+}
+.viewport-wrap {
+  min-height: 0;
+  flex: 1 1 0;
+}
+.assets {
+  min-height: 0;
+  max-height: none;
+  flex: 0 0 auto;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.assets > .asset-title {
+  height: 36px;
+  min-height: 36px;
+  padding: 0 10px;
+  justify-content: flex-start;
+  gap: 10px;
+}
+.asset-drawer-toggle {
+  border: 0;
+  background: transparent;
+  color: #dceaf5;
+  text-align: left;
+  font-weight: 600;
+  font-size: 11px;
+  padding: 7px 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  margin-right: auto;
+}
+.asset-title > .soft-btn {
+  font-size: 10px;
+  padding: 5px 9px;
+}
+.asset-title > progress {
+  width: 65px;
+}
+.upload-percent {
+  font-size: 10px;
+  color: #dcb46e;
+}
+.assets-body {
+  overflow: auto;
+  min-height: 0;
+  flex: 1;
+  padding: 10px 12px;
+  overscroll-behavior: contain;
+}
+.assets-body .asset-controls {
+  margin-top: 0;
+}
+.assets-body .asset-grid {
+  padding-bottom: 5px;
+}
+.workspace-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  border: 1px solid #35516a;
+  border-radius: 7px;
+  padding: 12px;
+}
+.workspace-settings legend {
+  font-size: 13px;
+  color: #dcb46e;
+}
+.studio-dialog .workspace-settings .inline-check {
+  flex-direction: row;
+  align-items: center;
+}
+.workspace-settings .inline-check input {
+  width: auto;
+  min-width: 0;
+  margin: 0;
+}
+.workspace-settings .hint {
+  margin: 0;
+  font-size: 11px;
+}
+.compact-workspace {
+  grid-template-columns: minmax(0, 1fr) !important;
+}
+.compact-workspace > .center-panel {
+  grid-column: 1;
+}
+.compact-workspace > .workspace-panel:not(.assets) {
+  position: absolute;
+  top: var(--workspace-overlay-top, 78px);
+  bottom: 0;
+  z-index: 12;
+  max-width: calc(100% - 48px);
+  box-shadow: 0 8px 35px #0009;
+}
+.compact-workspace > .left-panel {
+  left: 0;
+}
+.compact-workspace > .right-panel {
+  right: 0;
+}
+.workspace-backdrop {
+  position: absolute;
+  inset: 0;
+  top: var(--workspace-overlay-top, 78px);
+  z-index: 11;
+  border: 0;
+  background: #020a13aa;
+  cursor: default;
+}
+@media (max-width: 700px) {
+  .app .topbar {
+    padding: 6px 10px;
+  }
+  .brand {
+    gap: 5px;
+  }
+  .brand strong {
+    font-size: 11px;
+  }
+  .header-actions {
+    gap: 4px;
+  }
+  .header-actions button {
+    font-size: 10px;
+    padding: 6px;
+  }
+  .scene-toolbar {
+    gap: 5px;
+    padding: 0 6px;
+  }
+  .workspace-controls {
+    gap: 3px;
+  }
+  .workspace-controls button {
+    padding: 5px;
+    font-size: 9px;
+  }
+  .assets > .asset-title {
+    padding-inline: 8px;
+    gap: 6px;
+  }
+  .breadcrumbs {
+    font-size: 10px;
+  }
+  .workspace .left-panel,
+  .workspace .right-panel {
+    padding: 10px;
+  }
+}
