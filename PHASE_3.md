@@ -62,7 +62,7 @@ Image failures show a source-access/CORS/connectivity hint and **Retry images**.
 
 The initial extended browser test was corrected to accept Mission 1's existing setup confirmation. A component assertion now waits for local persistence before checking the completed upload message. Review caught the Firestore field-removal edge case; its fix has an emulator regression test.
 
-Production save/load through an authorized studio-admin browser session remains separate from emulator coverage and has not been performed. Live read-only image verification and deployment results are recorded below after rollout.
+Production save/load through an authorized studio-admin browser session remains separate from emulator coverage and has not been performed. Live read-only image verification and deployment results are recorded below.
 
 ## Changed files
 
@@ -81,7 +81,16 @@ Previous Hosting version: `919fbb5e56c01b48`; previous release: `179293925985300
 
 Hosting rollback: Firebase Console → Hosting → release history → previous release → Roll back. Restore CORS separately with its captured receipt only if needed; the CORS fix also supports the previous editor.
 
-Release status: prepared for authorized rollout; actual results will be appended after deployment.
+Release completed on 2026-10-25, approximately 20:24 Asia/Jerusalem. Deployed source commit: `cc98727`. Hosting version: `c67ea512e913e814`; release: `1792952652559000`. The Hosting predeploy hook rebuilt the production application and passed its output/credential checks.
+
+The CORS policy was applied and read back successfully at metageneration 2. Rollback receipt: `.firebase/cors-backup-1792952622983.json`. Previous/current Hosting receipts and live verification output are also retained in ignored `.firebase/` files.
+
+Actual production checks:
+
+- The live page references the new `index-B8MMSUSM.js` bundle containing Backgrounds, Upload background, and parallax controls.
+- Root and `/studio/worlds/sea_wonders` return HTTP 200 and show the production sign-in gate in an isolated signed-out Chrome session. No editor canvas is accessible while signed out, and no unhandled page errors occurred.
+- Three existing uploaded PNGs, including both images from the original screenshot, were downloaded read-only from the live Hosting origin. Normal thumbnails, browser fetch (HTTP 200), and real Pixi texture loading all succeeded with matching native dimensions. No files were reuploaded or replaced.
+- No production Firestore content save/load, staff sign-in, new custom claim, security rules deployment, permanent deletion, or content migration was performed. An authorized studio-admin browser session was not available for the final interactive save/refresh checklist.
 
 ## Limitations and manual acceptance
 
