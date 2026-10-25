@@ -4,7 +4,29 @@ import { applySceneEdit, sceneLifecycle, useProject } from "../project/store";
 import { isTrashed } from "../project/model";
 import { validateEntityExtensions } from "../project/validation";
 import { applyCommand, type EntityDelta, type SceneCommand } from "./commands";
-import { type Bounds, type Camera, scales } from "./geometry";
+import {
+  type Bounds,
+  type Camera,
+  type CameraMode,
+  type ViewportSize,
+  scales,
+} from "./geometry";
+import {
+  emptyBackground,
+  entityLayerPatch,
+  layerEntity,
+  validateBackground,
+  type BackgroundLayer,
+} from "../backgrounds/model";
+import type { BackgroundDelta, EditorTarget } from "./commands";
+export type ParallaxPreview = {
+  playing: boolean;
+  elapsed: number;
+  startedAt: number;
+  cameraBefore: Camera | null;
+  cameraModeBefore: CameraMode;
+  viewportBefore: ViewportSize | null;
+};
 
 export type Tool = "move" | "rotate" | "scale";
 export type EditorSettings = {
@@ -60,9 +82,13 @@ function validSettings(s: EditorSettings): EditorSettings {
 }
 export type SceneSession = {
   selectedIds: string[];
+  target?: EditorTarget | null;
+  preview?: ParallaxPreview | null;
   undo: SceneCommand[];
   redo: SceneCommand[];
   camera: Camera | null;
+  cameraMode?: CameraMode;
+  cameraViewport?: ViewportSize | null;
   bounds: Record<string, Bounds>;
   viewRequest: number;
   viewMode: "fit" | "reset";
@@ -72,6 +98,8 @@ export const EMPTY_SESSION: SceneSession = {
   undo: [],
   redo: [],
   camera: null,
+  cameraMode: "fit",
+  cameraViewport: null,
   bounds: {},
   viewRequest: 0,
   viewMode: "fit",
@@ -84,6 +112,8 @@ type Gesture = {
   label: string;
   source: "pointer" | "inspector";
   valid: boolean;
+  layerBefore?: BackgroundLayer;
+  layerPatch?: Partial<BackgroundLayer>;
 };
 type EditorState = {
   rename: { sceneKey: string; id: string } | null;
@@ -133,7 +163,10 @@ export function selectEntity(key: string, id: string | null) {
   finishGesture();
   const p = useProject.getState().project;
   if (id && !sceneRecord(key).scene.entities.some((e) => e.id === id)) return;
-  updateSession(key, { selectedIds: id ? [id] : [] });
+  updateSession(key, {
+    selectedIds: id ? [id] : [],
+    target: id ? { kind: "entity", id } : null,
+  });
   if (p?.active_scene_key === key && p.selected_key !== key) {
     // Focus metadata changes are UI state, not authored content or history.
     useProject.setState({ project: { ...p, selected_key: key } });
@@ -143,13 +176,19 @@ export function setTool(tool: Tool) {
   finishGesture();
   useEditor.setState({ tool });
 }
-export function setCamera(key: string, camera: Camera) {
-  updateSession(key, { camera });
+export function setCamera(
+  key: string,
+  camera: Camera,
+  cameraMode: CameraMode = "manual",
+  cameraViewport: ViewportSize | null = session(key).cameraViewport ?? null,
+) {
+  updateSession(key, { camera, cameraMode, cameraViewport });
 }
 export function requestView(key: string, mode: "fit" | "reset") {
   finishGesture();
   updateSession(key, {
     viewMode: mode,
+    cameraMode: mode === "fit" ? "fit" : "manual",
     viewRequest: session(key).viewRequest + 1,
   });
 }
@@ -231,13 +270,20 @@ export function execute(
   label: string,
   changes: EntityDelta[],
   selectedAfter = session(key).selectedIds,
+  background?: BackgroundDelta,
+  targetAfter: EditorTarget | null = selectedAfter[0]
+    ? { kind: "entity", id: selectedAfter[0] }
+    : null,
 ) {
   if (
-    !changes.length ||
+    (!background ||
+      JSON.stringify(background.before) === JSON.stringify(background.after)) &&
     changes.every((c) => JSON.stringify(c.before) === JSON.stringify(c.after))
   )
     return true;
   return safely(() => {
+    if (session(key).preview)
+      throw new Error("Stop the parallax preview before editing.");
     for (const c of changes)
       if (
         c.before?.locked &&
@@ -258,6 +304,11 @@ export function execute(
         bytes: 0,
         selectedBefore: s.selectedIds.slice(0, 1),
         selectedAfter: selectedAfter.slice(0, 1),
+        ...(background ? { background: structuredClone(background) } : {}),
+        targetBefore:
+          s.target ??
+          (s.selectedIds[0] ? { kind: "entity", id: s.selectedIds[0] } : null),
+        targetAfter,
       };
     command.bytes = JSON.stringify(command).length * 2;
     applySceneEdit(key, (scene) => applyCommand(scene, command));
@@ -265,6 +316,7 @@ export function execute(
       undo: [...s.undo, command],
       redo: [],
       selectedIds: [...selectedAfter].slice(0, 1),
+      target: targetAfter,
     });
     useEditor.setState({ message: "" });
     trimHistory();
@@ -277,6 +329,7 @@ export function beginGesture(
   source: Gesture["source"] = "pointer",
 ) {
   finishGesture();
+  if (session(key).preview) return false;
   const before = sceneRecord(key).scene.entities.find((e) => e.id === id);
   if (!before || (before.locked && !["Visibility", "Lock"].includes(label)))
     return false;
@@ -297,6 +350,10 @@ export function beginGesture(
 export function previewGesture(patch: Partial<SceneEntity>) {
   const g = useEditor.getState().gesture;
   if (!g) return;
+  if (g.layerBefore) {
+    previewLayerGesture(entityLayerPatch(patch));
+    return;
+  }
   const next = { ...g.before, ...g.patch, ...patch };
   if (
     !safely(() => {
@@ -330,6 +387,32 @@ export function finishGesture() {
   useEditor.setState({ gesture: null });
   if (!g.valid) return;
   safely(() => {
+    if (g.layerBefore) {
+      const before = sceneRecord(g.sceneKey).scene.background;
+      if (
+        !before ||
+        JSON.stringify(before.layers.find((l) => l.id === g.id)) !==
+          JSON.stringify(g.layerBefore)
+      )
+        throw new Error("Layer changed during editing.");
+      execute(
+        g.sceneKey,
+        g.label,
+        [],
+        [],
+        {
+          before,
+          after: {
+            ...before,
+            layers: before.layers.map((l) =>
+              l.id === g.id ? { ...l, ...g.layerPatch } : l,
+            ),
+          },
+        },
+        { kind: "background", id: g.id },
+      );
+      return;
+    }
     const index = sceneRecord(g.sceneKey).scene.entities.findIndex(
       (e) => e.id === g.id,
     );
@@ -444,6 +527,8 @@ function finishSceneGesture(key: string) {
 }
 function replay(key: string, reverse: boolean) {
   safely(() => {
+    if (session(key).preview)
+      throw new Error("Stop the parallax preview before editing.");
     const s = session(key),
       from = reverse ? s.undo : s.redo,
       command = from.at(-1);
@@ -453,6 +538,7 @@ function replay(key: string, reverse: boolean) {
       undo: reverse ? s.undo.slice(0, -1) : [...s.undo, command],
       redo: reverse ? [...s.redo, command] : s.redo.slice(0, -1),
       selectedIds: reverse ? command.selectedBefore : command.selectedAfter,
+      target: (reverse ? command.targetBefore : command.targetAfter) ?? null,
     });
   });
 }
@@ -492,3 +578,107 @@ export const scalePatch = (
     y = axis === "y" ? value : aspect ? s.y * ratio : s.y;
   return { scale: x, scaleX: x, scaleY: y };
 };
+
+export function selectLayer(key: string, id: string) {
+  selectEntity(key, null);
+  if (sceneRecord(key).scene.background?.layers.some((l) => l.id === id))
+    updateSession(key, { target: { kind: "background", id } });
+}
+export function effectiveBackground(key: string) {
+  const b = sceneRecord(key).scene.background ?? emptyBackground(),
+    g = useEditor.getState().gesture;
+  return g?.sceneKey === key && g.layerBefore
+    ? {
+        ...b,
+        layers: b.layers.map((l) =>
+          l.id === g.id ? { ...l, ...g.layerPatch } : l,
+        ),
+      }
+    : b;
+}
+export function beginLayerGesture(
+  key: string,
+  id: string,
+  label: string,
+  source: Gesture["source"] = "inspector",
+) {
+  finishGesture();
+  const l = sceneRecord(key).scene.background?.layers.find((l) => l.id === id);
+  if (!l || l.locked || session(key).preview) return false;
+  useEditor.setState({
+    gesture: {
+      sceneKey: key,
+      id,
+      label,
+      source,
+      before: layerEntity(l),
+      patch: {},
+      valid: true,
+      layerBefore: structuredClone(l),
+      layerPatch: {},
+    },
+  });
+  return true;
+}
+export function previewLayerGesture(patch: Partial<BackgroundLayer>) {
+  const g = useEditor.getState().gesture;
+  if (!g?.layerBefore) return;
+  const layerPatch = { ...g.layerPatch, ...patch };
+  if (
+    !safely(() =>
+      validateBackground({
+        version: 1,
+        showWorldArtwork: true,
+        layers: [{ ...g.layerBefore, ...layerPatch }],
+      }),
+    )
+  ) {
+    invalidateGesture();
+    return;
+  }
+  useEditor.setState({
+    gesture: {
+      ...g,
+      layerPatch,
+      patch: {
+        ...g.patch,
+        ...layerEntity({ ...g.layerBefore, ...layerPatch }),
+      },
+      valid: true,
+    },
+  });
+}
+export function setParallaxPreview(
+  key: string,
+  action: "play" | "pause" | "stop",
+) {
+  finishGesture();
+  const s = session(key),
+    old = s.preview;
+  if (action === "stop") {
+    updateSession(key, {
+      preview: null,
+      ...(old
+        ? {
+            camera: old.cameraBefore,
+            cameraMode: old.cameraModeBefore,
+            cameraViewport: old.viewportBefore,
+          }
+        : {}),
+    });
+    return;
+  }
+  const now = performance.now();
+  updateSession(key, {
+    preview: {
+      playing: action === "play",
+      elapsed: old
+        ? old.elapsed + (old.playing ? (now - old.startedAt) / 1000 : 0)
+        : 0,
+      startedAt: now,
+      cameraBefore: old ? old.cameraBefore : s.camera,
+      cameraModeBefore: old ? old.cameraModeBefore : (s.cameraMode ?? "fit"),
+      viewportBefore: old ? old.viewportBefore : (s.cameraViewport ?? null),
+    },
+  });
+}

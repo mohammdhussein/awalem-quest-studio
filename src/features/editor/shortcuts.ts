@@ -9,6 +9,7 @@ import {
   undo,
   requestRename,
 } from "./store";
+import { deleteLayer, duplicateLayer } from "../backgrounds/commands";
 export function editorShortcuts(
   event: KeyboardEvent | ReactKeyboardEvent,
   key: string | null,
@@ -26,7 +27,13 @@ export function editorShortcuts(
     modifier = event.ctrlKey || event.metaKey;
   if (event.key === "F2") {
     event.preventDefault();
-    requestRename(key);
+    if (session(key).target?.kind === "background") {
+      const input = document.querySelector<HTMLInputElement>(
+        ".background-inspector input[type=text]",
+      );
+      input?.focus();
+      input?.select();
+    } else requestRename(key);
   } else if (modifier && letter === "z") {
     event.preventDefault();
     event.shiftKey ? redo(key) : undo(key);
@@ -36,14 +43,18 @@ export function editorShortcuts(
   } else if (modifier && letter === "d") {
     event.preventDefault();
     const id = session(key).selectedIds[0];
-    if (id) duplicateEntity(key, id);
+    if (session(key).target?.kind === "background")
+      duplicateLayer(key, session(key).target!.id);
+    else if (id) duplicateEntity(key, id);
   } else if (!modifier && !event.altKey && ["w", "e", "r"].includes(letter)) {
     event.preventDefault();
     setTool(letter === "w" ? "move" : letter === "e" ? "rotate" : "scale");
   } else if (event.key === "Delete") {
     event.preventDefault();
     const id = session(key).selectedIds[0];
-    if (id) removeEntity(key, id);
+    if (session(key).target?.kind === "background")
+      deleteLayer(key, session(key).target!.id);
+    else if (id) removeEntity(key, id);
   } else if (event.key === "Escape") {
     cancelGesture();
   }

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 import type { SceneEntity, Shape } from "./data/scene";
 import { uploadSprite } from "./lib/cloud";
 import { requireStudioAdmin, useStudioAuth } from "./lib/studioAuth";
@@ -11,7 +11,19 @@ import { localDrafts } from "./lib/repositories/local";
 import SceneViewport from "./components/SceneViewport";
 import EntityInspector from "./components/EntityInspector";
 import FirebasePanel from "./components/FirebasePanel";
-import PanelDivider, { readPanelSize } from "./components/PanelDivider";
+import PanelDivider from "./components/PanelDivider";
+import WorkspaceControls from "./features/editor/WorkspaceControls";
+import {
+  closeDrawer,
+  drawerLayout,
+  sidebarLayout,
+  prepareLayout,
+  setCompact,
+  setWorkspacePreferences,
+  togglePanel,
+  useWorkspace,
+  visiblePanel,
+} from "./features/editor/workspace";
 import ProjectExplorer from "./features/project/ProjectExplorer";
 import ItemInspector from "./features/project/ItemInspector";
 import Dialog from "./features/project/Dialog";
@@ -46,6 +58,14 @@ import {
   useEditor,
 } from "./features/editor/store";
 import { editorShortcuts } from "./features/editor/shortcuts";
+import BackgroundPanel from "./features/backgrounds/BackgroundPanel";
+import BackgroundInspector from "./features/backgrounds/BackgroundInspector";
+import {
+  assignBackgroundAsset,
+  type AssetAction,
+} from "./features/backgrounds/commands";
+import { effectiveBackground, session } from "./features/editor/store";
+type BackgroundPicker = { sceneKey: string; action: AssetAction; id?: string };
 
 const availableShapes: Shape[] = [
   "fish",
@@ -87,10 +107,45 @@ function StudioEditor({ auth }: { auth: ReturnType<typeof useStudioAuth> }) {
   const [busy, setBusy] = useState(false),
     [progress, setProgress] = useState<number | null>(null);
   const [confirmLoad, setConfirmLoad] = useState(false);
-  const [leftWidth, setLeftWidth] = useState(() => readPanelSize("left", 280));
-  const [rightWidth, setRightWidth] = useState(() =>
-    readPanelSize("right", 270),
+  const [backgroundPicker, setBackgroundPicker] =
+    useState<BackgroundPicker | null>(null);
+  const workspace = useWorkspace(),
+    { leftWidth, rightWidth } = workspace.preferences;
+  const workspaceElement = useRef<HTMLDivElement>(null),
+    centerElement = useRef<HTMLElement>(null);
+  const [metrics, setMetrics] = useState({
+    width: window.innerWidth,
+    height: Math.max(0, window.innerHeight - 56),
+    chrome: 76,
+    overlayTop: 78,
+  });
+  const leftOpen = visiblePanel("left"),
+    rightOpen = visiblePanel("right");
+  const sidebar = sidebarLayout(
+    metrics.width,
+    leftOpen,
+    rightOpen,
+    leftWidth,
+    rightWidth,
   );
+  const assetDrawer = drawerLayout(
+    metrics.height,
+    metrics.chrome,
+    workspace.preferences.assetsHeight,
+    workspace.preferences.assetsOpen && !workspace.focus,
+  );
+  function restoreToggle(side: "left" | "right") {
+    requestAnimationFrame(() =>
+      document
+        .querySelector<HTMLButtonElement>(`[data-panel-toggle="${side}"]`)
+        ?.focus(),
+    );
+  }
+  function collapseSidebar(side: "left" | "right") {
+    if (workspace.compact) closeDrawer();
+    else togglePanel(side);
+    restoreToggle(side);
+  }
   const fileInput = useRef<HTMLInputElement>(null);
   const active = project?.active_scene_key
     ? project.records[project.active_scene_key]
@@ -100,6 +155,13 @@ function StudioEditor({ auth }: { auth: ReturnType<typeof useStudioAuth> }) {
       ? active
       : null;
   const scene = sceneRecord?.scene;
+  const selectedLayer =
+    sceneRecord && session(sceneRecord.key).target?.kind === "background"
+      ? effectiveBackground(sceneRecord.key).layers.find(
+          (l) => l.id === session(sceneRecord.key).target?.id,
+        )
+      : undefined;
+  const preview = !!(sceneRecord && session(sceneRecord.key).preview);
   const selectedRecord = project?.selected_key
     ? project.records[project.selected_key]
     : null;
@@ -127,6 +189,80 @@ function StudioEditor({ auth }: { auth: ReturnType<typeof useStudioAuth> }) {
   useEffect(() => {
     void initializeProject();
   }, []);
+  useEffect(() => {
+    const mq = window.matchMedia?.("(max-width: 1099px)");
+    const update = () => setCompact(mq ? mq.matches : window.innerWidth < 1100);
+    update();
+    mq?.addEventListener("change", update);
+    if (!mq) window.addEventListener("resize", update);
+    return () => {
+      mq?.removeEventListener("change", update);
+      window.removeEventListener("resize", update);
+    };
+  }, []);
+  useEffect(() => {
+    const measure = () => {
+      const width = workspaceElement.current?.clientWidth || window.innerWidth;
+      const height =
+        workspaceElement.current?.clientHeight ||
+        Math.max(0, window.innerHeight - 56);
+      const chrome =
+        [
+          ...(centerElement.current?.querySelectorAll<HTMLElement>(
+            ":scope > .scene-toolbar,:scope > .editor-toolbar,:scope > .status-line",
+          ) ?? []),
+        ].reduce((sum, element) => sum + element.offsetHeight, 0) || 76;
+      const overlayTop =
+        [
+          ...(centerElement.current?.querySelectorAll<HTMLElement>(
+            ":scope > .scene-toolbar,:scope > .editor-toolbar",
+          ) ?? []),
+        ].reduce((sum, element) => sum + element.offsetHeight, 0) || 78;
+      setMetrics((old) =>
+        old.height === height &&
+        old.chrome === chrome &&
+        old.width === width &&
+        old.overlayTop === overlayTop
+          ? old
+          : { height, chrome, width, overlayTop },
+      );
+    };
+    measure();
+    const observer =
+      typeof ResizeObserver === "undefined"
+        ? null
+        : new ResizeObserver(measure);
+    if (workspaceElement.current) observer?.observe(workspaceElement.current);
+    for (const node of centerElement.current?.querySelectorAll(
+      ":scope > .scene-toolbar,:scope > .editor-toolbar,:scope > .status-line",
+    ) ?? [])
+      observer?.observe(node);
+    window.addEventListener("resize", measure);
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener("resize", measure);
+    };
+  }, [ready, sceneRecord?.key]);
+  useEffect(() => {
+    if (!workspace.compact || !workspace.drawer) return;
+    const escape = (event: KeyboardEvent) => {
+      if (
+        event.key === "Escape" &&
+        !event.defaultPrevented &&
+        !useEditor.getState().gesture &&
+        !(event.target as Element)?.closest(
+          "input,textarea,select,dialog,[contenteditable=true]",
+        )
+      ) {
+        event.preventDefault();
+        const side = useWorkspace.getState().drawer;
+        closeDrawer();
+        if (side) restoreToggle(side);
+      }
+    };
+    window.addEventListener("keydown", escape);
+    return () => window.removeEventListener("keydown", escape);
+  }, [workspace.compact, workspace.drawer]);
   useEffect(() => () => cancelGesture(), []);
   useEffect(() => {
     const handle = (event: KeyboardEvent) =>
@@ -200,17 +336,14 @@ function StudioEditor({ auth }: { auth: ReturnType<typeof useStudioAuth> }) {
       selectEntity(target, id);
   }
   function useAsset(asset: AssetRecord, position?: { x: number; y: number }) {
-    if (
-      !sceneRecord ||
-      asset.world_id !== sceneRecord.world_id ||
-      asset.volume_id !== sceneRecord.volume_id
-    ) {
-      setStatus("Open a scene in this asset’s volume before adding it.");
+    if (!sceneRecord) {
+      setStatus("Open a scene before adding this asset.");
       return;
     }
     addEntity("image", {
       name: asset.name,
       assetId: asset.id,
+      assetKey: asset.key,
       assetUrl: asset.url,
       ...(asset.storage_path ? { assetPath: asset.storage_path } : {}),
       ...position,
@@ -228,11 +361,14 @@ function StudioEditor({ auth }: { auth: ReturnType<typeof useStudioAuth> }) {
       acknowledgeSaves(current, result.saved);
       persistProjectState(current);
       await flushDraft();
+      const recovered = result.recovered?.length
+        ? ` Recovered ${result.recovered.length} unchanged starter scene baseline(s); local edits were preserved.`
+        : "";
       setStatus(
         result.failures.length
-          ? `Saved ${result.saved.length} records. Unsaved scopes: ${result.failures.map((f) => `${f.scope}: ${f.message}`).join(" | ")}`
+          ? `Saved ${result.saved.length} records.${recovered} Unsaved scopes: ${result.failures.map((f) => `${f.scope}: ${f.message}`).join(" | ")}`
           : result.saved.length
-            ? `Firebase confirmed ${result.saved.length} records. Acknowledged drafts are retained locally.`
+            ? `Firebase confirmed ${result.saved.length} records. Acknowledged drafts are retained locally.${recovered}`
             : "No pending changes to save.",
       );
     });
@@ -253,16 +389,31 @@ function StudioEditor({ auth }: { auth: ReturnType<typeof useStudioAuth> }) {
       );
     });
   }
-  async function uploadImage(file?: File) {
+  async function uploadImage(file?: File, backgroundTarget?: BackgroundPicker) {
+    finishGesture();
+    const destination = backgroundTarget
+      ? useProject.getState().project?.records[backgroundTarget.sceneKey]
+      : null;
+    if (
+      backgroundTarget &&
+      (!destination ||
+        destination.kind !== "scene" ||
+        isTrashed(useProject.getState().project!, destination.key))
+    ) {
+      setStatus("The background destination is unavailable.");
+      return;
+    }
     if (!file || !context?.volume_id) return;
-    const targetWorld = context.world_id,
-      targetVolume = context.volume_id;
+    const targetWorld = destination?.world_id ?? context.world_id,
+      targetVolume = destination?.volume_id ?? context.volume_id;
     const targetScene =
-      sceneRecord?.world_id === targetWorld &&
+      backgroundTarget?.sceneKey ??
+      (sceneRecord?.world_id === targetWorld &&
       sceneRecord?.volume_id === targetVolume
         ? sceneRecord.key
-        : null;
+        : null);
     const parent =
+      !backgroundTarget &&
       selectedRecord &&
       ["volume", "mission", "folder"].includes(selectedRecord.kind) &&
       selectedRecord.volume_id === targetVolume &&
@@ -294,7 +445,7 @@ function StudioEditor({ auth }: { auth: ReturnType<typeof useStudioAuth> }) {
           size: file.size,
           mime: file.type,
         });
-      });
+      }, false);
       if (!imported) {
         downloadJson(
           {
@@ -311,7 +462,21 @@ function StudioEditor({ auth }: { auth: ReturnType<typeof useStudioAuth> }) {
         );
       }
       const current = useProject.getState().project!;
-      if (
+      if (backgroundTarget && targetScene) {
+        if (
+          !assignBackgroundAsset(
+            targetScene,
+            imported,
+            backgroundTarget.action,
+            backgroundTarget.id,
+          )
+        )
+          throw new Error(
+            useEditor.getState().message ||
+              "The file is uploaded and cataloged, but could not be assigned.",
+          );
+        setBackgroundPicker(null);
+      } else if (
         targetScene &&
         current.records[targetScene] &&
         !isTrashed(current, targetScene)
@@ -321,6 +486,7 @@ function StudioEditor({ auth }: { auth: ReturnType<typeof useStudioAuth> }) {
           {
             name: file.name,
             assetId: imported.id,
+            assetKey: imported.key,
             assetUrl: imported.url,
             assetPath: uploaded.path,
           },
@@ -443,21 +609,77 @@ function StudioEditor({ auth }: { auth: ReturnType<typeof useStudioAuth> }) {
         </div>
       )}
       <div
-        className="workspace"
-        style={{
-          gridTemplateColumns: `${leftWidth}px 5px minmax(260px,1fr) 5px ${rightWidth}px`,
-        }}
+        className={`workspace ${workspace.compact ? "compact-workspace" : ""} ${workspace.focus ? "scene-focused" : ""}`}
+        ref={workspaceElement}
+        style={
+          {
+            "--workspace-columns": workspace.compact
+              ? "minmax(0,1fr)"
+              : `${sidebar.left}px ${leftOpen ? 5 : 0}px minmax(0,1fr) ${rightOpen ? 5 : 0}px ${sidebar.right}px`,
+            "--workspace-overlay-top": `${metrics.overlayTop}px`,
+          } as CSSProperties
+        }
       >
-        <aside className="left-panel">
+        {workspace.compact && workspace.drawer && !workspace.focus && (
+          <button
+            type="button"
+            className="workspace-backdrop"
+            aria-label="Close sidebar overlay"
+            onClick={() => collapseSidebar(workspace.drawer!)}
+          />
+        )}
+        <aside
+          className="left-panel workspace-panel"
+          id="workspace-left"
+          hidden={!leftOpen}
+          aria-label="Project and layers"
+          style={
+            workspace.compact
+              ? {
+                  width: Math.min(
+                    leftWidth,
+                    Math.max(210, window.innerWidth - 48),
+                  ),
+                }
+              : undefined
+          }
+        >
+          <button
+            type="button"
+            className="panel-close"
+            onClick={() => collapseSidebar("left")}
+          >
+            Close left panel
+          </button>
           <ProjectExplorer />
           <MissionSetup />
           {scene && sceneRecord && (
             <SceneHierarchy sceneKey={sceneRecord.key} scene={scene} />
           )}
+          {sceneRecord && (
+            <BackgroundPanel
+              sceneKey={sceneRecord.key}
+              onChoose={(action, id) => {
+                finishGesture();
+                setBackgroundPicker({ sceneKey: sceneRecord.key, action, id });
+              }}
+            />
+          )}
         </aside>
-        <PanelDivider side="left" width={leftWidth} onResize={setLeftWidth} />
+        {!workspace.compact && (
+          <div className="divider-slot left-divider" hidden={!leftOpen}>
+            <PanelDivider
+              side="left"
+              value={sidebar.left}
+              max={sidebar.leftMax}
+              onBeforeResize={prepareLayout}
+              onResize={(leftWidth) => setWorkspacePreferences({ leftWidth })}
+            />
+          </div>
+        )}
         <main
           className="center-panel"
+          ref={centerElement}
           data-scene-editor
           onKeyDown={(event) =>
             editorShortcuts(event, sceneRecord?.key ?? null)
@@ -469,7 +691,11 @@ function StudioEditor({ auth }: { auth: ReturnType<typeof useStudioAuth> }) {
               {sceneVolume?.name ?? "Choose a volume"} <span>/</span>{" "}
               {sceneRecord?.name ?? "No scene open"}
             </div>
-            <div className="mode-label">● LAYERED 2.5D</div>
+            <WorkspaceControls
+              sceneKey={sceneRecord?.key ?? null}
+              assetsExpanded={assetDrawer.expanded && !workspace.focus}
+              assetsAvailable={assetDrawer.canExpand}
+            />
           </div>
           {sceneRecord && <Toolbar sceneKey={sceneRecord.key} />}
           <div className="viewport-wrap">
@@ -495,33 +721,42 @@ function StudioEditor({ auth }: { auth: ReturnType<typeof useStudioAuth> }) {
               Drag objects to reposition · Drop catalog assets here
             </span>
           </div>
-          <section className="assets">
+          {assetDrawer.expanded && !workspace.focus && (
+            <PanelDivider
+              side="assets"
+              value={assetDrawer.height}
+              max={assetDrawer.max}
+              onBeforeResize={prepareLayout}
+              onResize={(assetsHeight) =>
+                setWorkspacePreferences({ assetsHeight })
+              }
+            />
+          )}
+          <section
+            className="assets workspace-panel"
+            id="workspace-assets"
+            hidden={workspace.focus}
+            aria-label="Asset Browser"
+            style={{ height: assetDrawer.height }}
+          >
             <div className="asset-title">
-              <strong>Asset browser {volume ? `· ${volume.name}` : ""}</strong>
-              <small>Original images are retained</small>
-            </div>
-            <div className="asset-controls">
-              <select
-                aria-label="Choose placeholder type"
-                value={shape}
-                onChange={(e) => setShape(e.target.value as Shape)}
-              >
-                {availableShapes.map((s) => (
-                  <option key={s}>{s}</option>
-                ))}
-              </select>
               <button
-                className="soft-btn"
                 type="button"
-                disabled={!scene}
-                onClick={() => addEntity(shape)}
+                className="asset-drawer-toggle"
+                aria-controls="asset-drawer-content"
+                aria-expanded={assetDrawer.expanded}
+                disabled={!assetDrawer.canExpand}
+                onClick={() => togglePanel("assets")}
               >
-                + Add sample
+                <span aria-hidden="true">
+                  {assetDrawer.expanded ? "▾" : "▸"}
+                </span>{" "}
+                Asset browser {volume ? `· ${volume.name}` : ""}
               </button>
               <button
                 className="soft-btn"
                 type="button"
-                disabled={!auth.admin || busy || !context?.volume_id}
+                disabled={!auth.admin || busy || !context?.volume_id || preview}
                 onClick={() => fileInput.current?.click()}
               >
                 Upload sprite
@@ -537,42 +772,116 @@ function StudioEditor({ auth }: { auth: ReturnType<typeof useStudioAuth> }) {
                 }}
               />
               {progress !== null && (
-                <progress
-                  aria-label="Image upload progress"
-                  max={100}
-                  value={progress}
-                />
+                <>
+                  <progress
+                    aria-label="Image upload progress"
+                    max={100}
+                    value={progress}
+                  />
+                  <span className="upload-percent" role="status">
+                    {progress}%
+                  </span>
+                </>
               )}
             </div>
-            {context?.volume_id ? (
-              <AssetBrowser
-                worldId={context.world_id}
-                volumeId={context.volume_id}
-                onAdd={useAsset}
-              />
-            ) : (
-              <p className="hint">Choose a volume to browse reusable images.</p>
-            )}
+            <div
+              id="asset-drawer-content"
+              className="assets-body"
+              hidden={!assetDrawer.expanded}
+            >
+              <div className="asset-controls">
+                <select
+                  aria-label="Choose placeholder type"
+                  value={shape}
+                  onChange={(e) => setShape(e.target.value as Shape)}
+                >
+                  {availableShapes.map((s) => (
+                    <option key={s}>{s}</option>
+                  ))}
+                </select>
+                <button
+                  className="soft-btn"
+                  type="button"
+                  disabled={!scene || preview}
+                  onClick={() => addEntity(shape)}
+                >
+                  + Add sample
+                </button>
+              </div>
+              {context?.volume_id ? (
+                <AssetBrowser
+                  worldId={context.world_id}
+                  volumeId={context.volume_id}
+                  onAdd={useAsset}
+                  disabled={preview || busy}
+                  onBackground={
+                    sceneRecord
+                      ? (asset) =>
+                          assignBackgroundAsset(sceneRecord.key, asset, "base")
+                      : undefined
+                  }
+                />
+              ) : (
+                <p className="hint">
+                  Choose a volume to browse reusable images.
+                </p>
+              )}
+            </div>
           </section>
           <div className="status-line" role="status">
             {busy && <span className="working-indicator">Working… </span>}
             {editor.message || notice || status}
           </div>
         </main>
-        <PanelDivider
-          side="right"
-          width={rightWidth}
-          onResize={setRightWidth}
-        />
-        <aside className="right-panel">
+        {!workspace.compact && (
+          <div className="divider-slot right-divider" hidden={!rightOpen}>
+            <PanelDivider
+              side="right"
+              value={sidebar.right}
+              max={sidebar.rightMax}
+              onBeforeResize={prepareLayout}
+              onResize={(rightWidth) => setWorkspacePreferences({ rightWidth })}
+            />
+          </div>
+        )}
+        <aside
+          className="right-panel workspace-panel"
+          id="workspace-right"
+          hidden={!rightOpen}
+          aria-label="Inspector"
+          style={
+            workspace.compact
+              ? {
+                  width: Math.min(
+                    rightWidth,
+                    Math.max(210, window.innerWidth - 48),
+                  ),
+                }
+              : undefined
+          }
+        >
+          <button
+            type="button"
+            className="panel-close"
+            onClick={() => collapseSidebar("right")}
+          >
+            Close Inspector
+          </button>
           <div className="panel-heading">
             <span>INSPECTOR</span>
             <span>2.5D</span>
           </div>
           {selectedRecord && selectedRecord.kind !== "scene" ? (
             <ItemInspector record={selectedRecord} />
+          ) : selectedLayer && sceneRecord ? (
+            <BackgroundInspector
+              sceneKey={sceneRecord.key}
+              layer={selectedLayer}
+            />
           ) : selected && sceneRecord ? (
-            <EntityInspector sceneKey={sceneRecord.key} selected={selected} />
+            <fieldset className="editor-fieldset" disabled={preview}>
+              <EntityInspector sceneKey={sceneRecord.key} selected={selected} />
+            </fieldset>
           ) : (
             <p className="hint">
               Select a scene object, mission, folder, or asset to inspect it.
@@ -591,6 +900,78 @@ function StudioEditor({ auth }: { auth: ReturnType<typeof useStudioAuth> }) {
           />
         </aside>
       </div>
+      {backgroundPicker &&
+        (() => {
+          const target = project.records[backgroundPicker.sceneKey];
+          if (target?.kind !== "scene" || isTrashed(project, target.key))
+            return null;
+          return (
+            <Dialog
+              title="Choose background image"
+              onClose={() => setBackgroundPicker(null)}
+            >
+              <p>
+                Choose a reusable image from any world, or upload a new image.
+                Existing scene objects are preserved.
+              </p>
+              <label className="upload-background-label">
+                Upload background
+                <input
+                  aria-label="Upload background"
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp"
+                  disabled={!auth.admin || busy}
+                  onChange={(e) => {
+                    void uploadImage(e.target.files?.[0], backgroundPicker);
+                    e.target.value = "";
+                  }}
+                />
+              </label>
+              {!auth.admin && (
+                <p className="hint">
+                  Sign in as a studio administrator to upload. Existing catalog
+                  images remain available locally.
+                </p>
+              )}
+              <AssetBrowser
+                picker
+                disabled={busy}
+                worldId={target.world_id}
+                volumeId={target.volume_id!}
+                onAdd={(asset) => {
+                  if (
+                    assignBackgroundAsset(
+                      target.key,
+                      asset,
+                      backgroundPicker.action,
+                      backgroundPicker.id,
+                    )
+                  )
+                    setBackgroundPicker(null);
+                }}
+              />
+              {busy && <p role="status">Uploading image… {progress ?? 0}%</p>}
+              {editor.message && (
+                <p role="alert" className="error-text">
+                  {editor.message}
+                </p>
+              )}
+              {!busy && (
+                <p role="status" className="hint">
+                  {status}
+                </p>
+              )}
+              <div className="dialog-actions">
+                <button
+                  className="soft-btn"
+                  onClick={() => setBackgroundPicker(null)}
+                >
+                  Close
+                </button>
+              </div>
+            </Dialog>
+          );
+        })()}
       {confirmLoad && (
         <Dialog
           title="Load cloud project?"

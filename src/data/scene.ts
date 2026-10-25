@@ -1,3 +1,4 @@
+import type { BackgroundConfiguration } from "../features/backgrounds/model";
 export type Layer = "background" | "playfield" | "foreground";
 export type Shape =
   | "fish"
@@ -30,6 +31,7 @@ export type SceneEntity = {
   assetUrl?: string;
   assetPath?: string;
   assetId?: string;
+  assetKey?: string;
   interaction?: { type: "none" | "show_fact" | "play_audio"; target?: string };
 };
 export type SceneDocument = {
@@ -40,6 +42,7 @@ export type SceneDocument = {
   volume_id: string;
   dimensions: { width: 960; height: 540 };
   entities: SceneEntity[];
+  background?: BackgroundConfiguration;
 };
 
 const sample: Record<string, { shape: Shape; color: string; name: string }[]> =

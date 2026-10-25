@@ -4,6 +4,7 @@ import {
   cancelGesture,
   finishGesture,
   invalidateGesture,
+  beginLayerGesture,
 } from "./store";
 
 type Props = {
@@ -17,6 +18,7 @@ type Props = {
   min?: number;
   max?: number;
   step?: number;
+  kind?: "entity" | "background";
 };
 /** A focus session is one reversible edit; invalid text stays outside the scene model. */
 export default function EditorField({
@@ -30,6 +32,7 @@ export default function EditorField({
   min,
   max,
   step = "any",
+  kind = "entity",
 }: Omit<Props, "step"> & { step?: number | "any" }) {
   const [raw, setRaw] = useState(String(value)),
     [error, setError] = useState("");
@@ -67,7 +70,10 @@ export default function EditorField({
         aria-describedby={error ? `${inputId}-error` : undefined}
         onFocus={() => {
           initial.current = String(value);
-          editing.current = beginGesture(sceneKey, id, label, "inspector");
+          editing.current =
+            kind === "background"
+              ? beginLayerGesture(sceneKey, id, label)
+              : beginGesture(sceneKey, id, label, "inspector");
           setError("");
         }}
         onChange={(event) => {

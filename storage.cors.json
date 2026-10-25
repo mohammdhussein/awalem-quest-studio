@@ -1,0 +1,11 @@
+[
+  {
+    "origin": [
+      "https://awalem-quest-studio.web.app",
+      "https://awalem-quest-studio.firebaseapp.com"
+    ],
+    "method": ["GET", "HEAD"],
+    "responseHeader": ["Content-Type"],
+    "maxAgeSeconds": 3600
+  }
+]

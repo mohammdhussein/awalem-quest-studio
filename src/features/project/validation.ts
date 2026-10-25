@@ -1,4 +1,5 @@
 import type { SceneDocument, SceneEntity } from "../../data/scene";
+import { validateBackground } from "../backgrounds/model";
 import {
   itemKey,
   volumeKey,
@@ -73,11 +74,18 @@ export function validateScene(
       !/^#[\da-f]{6}$/i.test(entity.color)
     )
       throw new Error("Invalid or duplicate scene object.");
-    for (const field of ["assetUrl", "assetPath", "assetId"])
+    for (const field of ["assetUrl", "assetPath", "assetId", "assetKey"])
       if (entity[field] !== undefined && typeof entity[field] !== "string")
         throw new Error(`Invalid ${field}.`);
     if (entity.assetUrl && !/^https?:\/\//i.test(String(entity.assetUrl)))
       throw new Error("Asset URLs must use HTTP or HTTPS.");
+    if (
+      entity.assetKey !== undefined &&
+      !/^studio_worlds\/[^/]+\/volumes\/[^/]+\/assets\/[^/]+$/.test(
+        String(entity.assetKey),
+      )
+    )
+      throw new Error("Invalid shared asset reference.");
     if (entity.interaction !== undefined) {
       const interaction = object(entity.interaction);
       if (
@@ -93,6 +101,7 @@ export function validateScene(
     validateEntityExtensions(entity);
     return entity as SceneEntity;
   });
+  if (data.background !== undefined) validateBackground(data.background);
   return {
     ...data,
     schema_version: 2,
