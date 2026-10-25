@@ -25,4 +25,6 @@ Production diagnostics were read-only. The user's actual browser draft and produ
 3. Click **Save to Firebase** again. Matching metadata is acknowledged and eligible local starter edits are saved normally.
 4. If a genuine scene conflict remains, retain the backup and review the two versions before loading cloud content, because cloud load replaces the working project and clears scene history.
 
-Branch: `fix/cloud-baseline-recovery`, based on the deployed Phase 3 branch. `main`, Firebase rules, production access, and CORS configuration are unchanged. Live release details are recorded after deployment.
+Branch: `fix/cloud-baseline-recovery`, based on the deployed Phase 3 branch. `main`, Firebase rules, production access, and CORS configuration are unchanged.
+
+Deployed 2026-10-25 from source commit `0ae4c50`; Hosting version `c9223d2504c6c71b`. Live read-only checks confirmed HTTP 200, the new `index-BcUpg3Am.js` bundle and recovery status text, the signed-out access gate, and no unhandled page errors. The user's next explicit Save to Firebase applies the transaction recovery to their browser draft; no production scene data was written by the diagnostic/deployment task.
