@@ -6,6 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
+    "postbuild": "node scripts/verify-hosting-build.mjs",
+    "deploy:hosting": "firebase deploy --only hosting --project awalem-quest-studio",
     "preview": "vite preview",
     "test": "vitest run",
     "test:emulator": "node scripts/test-emulator.mjs"

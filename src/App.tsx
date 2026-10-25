@@ -18,12 +18,18 @@ import { addAsset, markChanged } from './features/project/commands';
 import { isTrashed, volumeKey, type AssetRecord } from './features/project/model';
 import AssetBrowser from './features/assets/AssetBrowser';
 import { imageDimensions, missingReferences } from './features/assets/catalog';
+import StudioAccess from './components/StudioAccess';
 
 const availableShapes: Shape[] = ['fish', 'coral', 'bird', 'plant', 'rock', 'crystal', 'hotspot'];
 const colors: Record<Shape, string> = { fish: '#ffd16f', coral: '#fc8d9e', bird: '#f6b968', plant: '#63c6a3', rock: '#94b0b5', crystal: '#bdeaff', hotspot: '#ffe5a3', image: '#c3e1ff' };
 export default function App() {
-  const { project, ready, localStatus, localError, notice, change, editEntity, select } = useProject();
   const auth = useStudioAuth();
+  if (import.meta.env.PROD && (!auth.user || !auth.admin || auth.checking || auth.error)) return <StudioAccess auth={auth} />;
+  return <StudioEditor auth={auth} />;
+}
+
+function StudioEditor({ auth }: { auth: ReturnType<typeof useStudioAuth> }) {
+  const { project, ready, localStatus, localError, notice, change, editEntity, select } = useProject();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [shape, setShape] = useState<Shape>('fish');
   const [status, setStatus] = useState('Local drafts save automatically. Cloud save/load is explicit.');

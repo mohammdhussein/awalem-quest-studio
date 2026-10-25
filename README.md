@@ -8,7 +8,11 @@ Local drafts save automatically to IndexedDB. Select scenes in the explorer to s
 
 **Save to Firebase** explicitly saves pending project records. **Load cloud project** confirms replacement of local changes and stores a recovery snapshot first. **Backup project** exports a portable JSON snapshot, **Export scene** exports the open scene, and **Recovery** exports or restores earlier browser snapshots. New scenes are blank; the original Main Scene examples remain available.
 
-Staff email/password authentication is preserved. Cloud actions additionally require a verified `studioAdmin: true` token claim. Configuration or sign-in alone does not establish live Firebase connectivity. File uploads and Firestore metadata saves have separate success messages.
+Staff email/password authentication is preserved. Production builds require authentication and a verified `studioAdmin: true` token claim before opening the editor. Local development retains offline editing, and cloud actions also require the administrator claim. Configuration or sign-in alone does not establish live Firebase connectivity. File uploads and Firestore metadata saves have separate success messages.
+
+## Firebase Hosting
+
+Classic Hosting serves `dist` with an SPA fallback. Run `npm run deploy:hosting` only when ready to publish; its predeploy hook builds and checks the production output first, and only Hosting is deployed. On Windows PowerShell use `npm.cmd run deploy:hosting`. See [FIREBASE_HOSTING.md](FIREBASE_HOSTING.md) for environment variables, administrator access, verification, costs, and the current CLI authentication blocker. Deployment has not been performed.
 
 ```bash
 npm install
@@ -43,7 +47,7 @@ cp .env.example .env   # on Windows, copy the file manually
 npm run dev
 ```
 
-Open the localhost URL printed by Vite. The editor works locally **without** a Firebase account.
+Open the localhost URL printed by Vite. In `npm run dev`, the editor works locally **without** a Firebase account. Production builds, including `npm run preview`, require an authenticated studio administrator.
 
 ## Firebase setup (web configuration added; live services still need provisioning)
 
